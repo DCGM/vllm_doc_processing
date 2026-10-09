@@ -30,13 +30,13 @@ Use `vllm-doc observe` (README) to try the prompt on selected scans.
 `pipeline.observe_book` observes the scans strictly in order; each request carries only the current image plus a text context built by `context.build_context` from the stored observations of **all** earlier scans. The context is rebuilt from scratch for every scan, deterministically (same observations → same text), never edits the observations, and is not stored: it can be regenerated from `scans[].observation`. Its format version is recorded as `run.prompt_versions.context`. With `use_context: false` no context is sent (every scan is observed on its own, as with `vllm-doc observe`), so the effect of the context can be measured; the setting is recorded in `run.parameters`. Example (scan 6 of a book):
 ```text
 Scans 1-5 so far; "scan N" is a scan position, not a page number.
+Printed page numbers, latest: scan 2: XII (left), 13 (right); scan 4: 13; scan 5: 14.
+Current chapter (latest headings): level 1 "KAPITOLA I. Úvod" (scan 4).
+Unresolved: scan 3 not observed (request failed); page number 13 on scan 4 after 13 on scan 2.
+Table of contents entries seen on scan 2 (1 entries).
 Bibliographic data seen (field: value (scans)):
 - title: "Cesty po Šumavě" (scan 1)
 - author: "Karel Klostermann" (scan 1)
-Printed page numbers, latest: scan 2: XII (left), 13 (right); scan 4: 13; scan 5: 14.
-Current chapter (latest headings): level 1 "KAPITOLA I. Úvod" (scan 4).
-Table of contents entries seen on scan 2 (1 entries).
-Unresolved: scan 3 not observed (request failed); page number 13 on scan 4 after 13 on scan 2.
 Previous scans:
 - scan 1: TitlePage; right; no page number
 - scan 2: TableOfContents; both (left NormalPage, right TableOfContents); page XII (left), 13 (right); 1 TOC entries
@@ -44,9 +44,9 @@ Previous scans:
 - scan 4: NormalPage; right; page 13; heading "KAPITOLA I. Úvod"
 - scan 5: NormalPage; left; page 14
 ```
-Sections: bibliographic candidates per field (distinct values in first-seen order, with the scans showing them); the latest printed numbers; the current heading per level (a heading closes deeper levels; unknown level counts as 1); where TOC entries were seen (counts only, not the entries); unresolved points (failed scans, several forms of a single-valued bibliographic field, page numbers that do not increase within one numeral system); one line per recent scan.
+Sections, in priority order: the current document state — the latest printed numbers; the current heading per level (a heading closes deeper levels; unknown level counts as 1; at most 4 levels); unresolved points (failed scans, several forms of a single-valued bibliographic field, page numbers that do not increase within one numeral system); where TOC entries were seen (counts only, not the entries) — then bibliographic candidates per field (distinct values in first-seen order, with the scans showing them; fields ordered title, author, subtitle, part, edition, date, publisher, place, series, other contributors, printer), then one line per recent scan.
 
-**Bounding rule:** quoted values are cut to 80 characters; at most 3 values per bibliographic field, the last 5 numbered scans, 2 numbering irregularities, 5 failed scans and `context_recent_scans` previous-scan lines are shown. If the text is still longer than `context_max_chars`, the oldest previous-scan lines are dropped first, then whole lines from the end. The context therefore never exceeds `context_max_chars` (default 2000 characters ≈ 500–700 tokens), however long the book.
+**Bounding rule:** quoted values are cut to 80 characters; at most 3 values per bibliographic field, the last 5 numbered scans, 4 heading levels, 2 numbering irregularities, 5 failed scans and `context_recent_scans` previous-scan lines are shown. If the text is still longer than `context_max_chars`, the oldest previous-scan lines are dropped first, then bibliographic fields from the least important one (if all are dropped, the section says so), then whole lines from the end. The document state therefore survives a crowded title page, and the context never exceeds `context_max_chars` (default 2000 characters ≈ 500–700 tokens), however long the book.
 
 The observation system prompt already tells the model that the context is automatic, may be wrong and must not be copied into the observation; whether the context improves or degrades observations has not been measured yet.
 
