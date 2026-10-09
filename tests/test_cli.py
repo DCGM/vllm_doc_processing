@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from vllm_doc_processing.cli import EXIT_CONFIG, main
 
@@ -15,6 +16,8 @@ def book(tmp_path, monkeypatch):
     book_dir = tmp_path / "book"
     book_dir.mkdir()
     (book_dir / "order.txt").write_text("a\nb\n")
+    for name in ("a", "b"):
+        Image.new("L", (40, 60), 255).save(book_dir / f"{name}.png")
     return book_dir
 
 
@@ -102,3 +105,17 @@ def test_missing_api_key_warns_in_dry_run_but_fails_real_run(book, capsys):
     real = ["process", "--input", str(book), "--output", str(book.parent / "out.json"), *base]
     assert main(real) == EXIT_CONFIG
     assert "OPENROUTER_API_KEY" in capsys.readouterr().err
+
+
+def test_dry_run_reports_inventory_and_max_pages(book, capsys):
+    Image.new("L", (10, 10)).save(book / "stray.jpg")
+    assert main(args(book, "--provider", "openrouter", "--model", "m", "--max-pages", "1")) == 0
+    captured = capsys.readouterr()
+    out = json.loads(captured.out)
+    assert (out["listed_scans"], out["selected_scans"], out["config"]["max_pages"]) == (2, 1, 1)
+    assert out["unlisted_images"] == ["stray.jpg"]
+    assert "stray.jpg" in captured.err
+    (book / "b.png").write_bytes(b"not an image")  # beyond --max-pages: not decoded
+    dry_run(capsys, args(book, "--provider", "openrouter", "--model", "m", "--max-pages", "1"))
+    assert main(args(book, "--provider", "openrouter", "--model", "m")) == EXIT_CONFIG
+    assert "b.png: cannot decode image" in capsys.readouterr().err

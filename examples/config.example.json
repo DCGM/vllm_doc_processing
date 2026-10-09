@@ -2,5 +2,8 @@
   "provider": "openrouter",
   "model": "<vision-model-id>",
   "postprocess_model": null,
-  "base_url": null
+  "base_url": null,
+  "max_pages": null,
+  "image_max_side": 2048,
+  "image_format": "jpeg"
 }

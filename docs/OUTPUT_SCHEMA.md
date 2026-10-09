@@ -25,6 +25,7 @@ AnnotatedBook
 ## Scans and observations
 - Scan order comes from an **order file** (one image name without extension per line, in physical order; recorded in `source.order_file`). Filenames are usually UUIDs and are not sorted.
 - `scan_index` is the zero-based line position in the order file. `scan_id` is the listed name (e.g. the page UUID), so it is stable even if scans are added; `filename` is the matching file including its extension. Neither is a printed page number.
+- `image_sha256` is the hash of the original file bytes; `width`/`height` are pixel dimensions of the upright original (EXIF orientation applied), not of the possibly downscaled upload. With `--max-pages N`, `scans` holds only the first N listed scans and `source.scan_count == N`.
 - Exactly one `observation` per scan. `null` means the scan was not (successfully) observed; failed attempts are in `run.calls`. `observation_call_id` names the call that produced it: when a scan is escalated (#9) the stronger model's output replaces the cheaper one, and the cheaper call stays only in `run.calls`.
 - `ScanObservation` is also the vision model's response contract (#5):
 
