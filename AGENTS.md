@@ -6,7 +6,7 @@ This repository is a small **research experiment**, not a production pipeline. D
 ## Read first
 1. `README.md` — scope and example workflow.
 2. `docs/IMPLEMENTATION_PLAN.md` — stages, dependencies, decisions and exit criteria.
-3. `docs/OUTPUT_SCHEMA.md` — proposed versioned JSON data model, ontology and evidence semantics.
+3. `docs/OUTPUT_SCHEMA.md` — versioned JSON data model, ontology and evidence semantics.
 4. Relevant GitHub issue; do not silently broaden its scope.
 5. MetaKat's [schema](https://github.com/DCGM/MetaKat/blob/main/metakat/schemas/base_objects.py) when working on field parity.
 
@@ -49,6 +49,6 @@ docs/
 
 ## Documentation and source of truth
 - The published MetaKat schema is a **reference**, not a runtime dependency.
-- `docs/OUTPUT_SCHEMA.md` is the initial target contract; implementation issue #1 finalizes exact field names before downstream code relies on them.
+- `src/vllm_doc_processing/models.py` is the source of truth for the JSON format; `docs/OUTPUT_SCHEMA.md` documents it and must be updated together with it.
 - GitHub issues #1–#8 are the MVP. #9–#11 are optional experiments.
 - Any proposed change that expands scope beyond books or requires OCR/ALTO, a database, or a service needs an explicit issue first.

@@ -2,7 +2,7 @@
 
 Experimental **API-only vision-language model processing of digitized books**. A folder of ordered book scans is analyzed image by image using a vision model with context derived from earlier extracted pages. A final text LLM pass reconciles bibliographic metadata, page numbering, page types, sides, table of contents and chapter structure into a custom JSON.
 
-**Status: planning.** No runnable CLI implementation exists yet. Start with the dependency-ordered [issues](https://github.com/DCGM/vllm_doc_processing/issues) (#1–#8 for MVP); code follows in separate PRs.
+**Status: early implementation.** The output data model (`src/vllm_doc_processing/models.py`, issue #1) exists; no runnable CLI yet. Start with the dependency-ordered [issues](https://github.com/DCGM/vllm_doc_processing/issues) (#1–#8 for MVP); code follows in separate PRs.
 
 ## Scope
 - Input: directory of naturally sorted book images, one image per scan (single page or facing-page spread).
@@ -25,9 +25,16 @@ vllm-doc process --input /data/scanned-book --output /data/book.json \
 ```
 CLI flags, configuration rules and working examples will be refined by issue #2 and #8. Model names are intentionally not fixed until live benchmarking.
 
+## Development
+```bash
+pip install -e '.[dev]'
+pytest            # offline tests only
+```
+The output JSON format is defined by Pydantic models in `src/vllm_doc_processing/models.py`, documented in [docs/OUTPUT_SCHEMA.md](docs/OUTPUT_SCHEMA.md), with a validated example in [examples/annotated_book.example.json](examples/annotated_book.example.json).
+
 ## Design and contributions
 - [Implementation plan and backlog](docs/IMPLEMENTATION_PLAN.md)
-- [Proposed JSON output schema and MetaKat mapping](docs/OUTPUT_SCHEMA.md)
+- [JSON output schema and MetaKat mapping](docs/OUTPUT_SCHEMA.md)
 - [Agent development instructions](AGENTS.md)
 - [MetaKat](https://github.com/DCGM/MetaKat) — basis for comparison and page-type/metadata vocabulary
 

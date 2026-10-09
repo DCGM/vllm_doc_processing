@@ -1,0 +1,249 @@
+{
+  "schema_version": "0.1",
+  "book_id": "example-book",
+  "source": {"input_directory": null, "scan_count": 5},
+  "scans": [
+    {
+      "scan_id": "scan-0001",
+      "scan_index": 0,
+      "filename": "0001.tif",
+      "image_sha256": "0000000000000000000000000000000000000000000000000000000000000001",
+      "width": 2480,
+      "height": 3508,
+      "observation": {
+        "page_type": "FrontCover",
+        "page_type_confidence": 0.95,
+        "side": null,
+        "bibliographic_candidates": [
+          {"field": "title", "value": "Cesty po Šumavě", "confidence": 0.9},
+          {"field": "author", "value": "Jan Žlutický", "confidence": 0.8}
+        ]
+      },
+      "observation_call_id": "call-0001"
+    },
+    {
+      "scan_id": "scan-0002",
+      "scan_index": 1,
+      "filename": "0002.tif",
+      "image_sha256": "0000000000000000000000000000000000000000000000000000000000000002",
+      "width": 2480,
+      "height": 3508,
+      "observation": {
+        "page_type": "TitlePage",
+        "page_type_confidence": 0.97,
+        "side": "right",
+        "side_confidence": 0.7,
+        "bibliographic_candidates": [
+          {"field": "author", "value": "Jan Žlutický", "confidence": 0.95},
+          {"field": "title", "value": "Cesty po Šumavě", "confidence": 0.95},
+          {"field": "subtitle", "value": "Črty z putování", "confidence": 0.9},
+          {"field": "illustrator", "value": "M. Řeháková", "confidence": 0.8, "notes": "Printed as 'Ilustrovala M. Řeháková'."},
+          {"field": "publication_place", "value": "Praha", "confidence": 0.9},
+          {"field": "publisher", "value": "Nakladatelství Příklad", "confidence": 0.9},
+          {"field": "publication_date", "value": "1925", "confidence": 0.85}
+        ]
+      },
+      "observation_call_id": "call-0002"
+    },
+    {
+      "scan_id": "scan-0003",
+      "scan_index": 2,
+      "filename": "0003.tif",
+      "image_sha256": "0000000000000000000000000000000000000000000000000000000000000003",
+      "width": 2480,
+      "height": 3508,
+      "observation": {
+        "page_type": "Impressum",
+        "side": "left",
+        "bibliographic_candidates": [
+          {"field": "manufacture_publisher", "value": "Tiskárna Vzor", "confidence": 0.8},
+          {"field": "manufacture_place", "value": "Brno", "confidence": 0.8},
+          {"field": "edition", "value": "Vydání první", "confidence": 0.85}
+        ],
+        "notes": "Printer's line at the bottom of the page."
+      },
+      "observation_call_id": "call-0003"
+    },
+    {
+      "scan_id": "scan-0004",
+      "scan_index": 3,
+      "filename": "0004.tif",
+      "image_sha256": "0000000000000000000000000000000000000000000000000000000000000004",
+      "width": 4960,
+      "height": 3508,
+      "observation": {
+        "page_type": "TableOfContents",
+        "side": "both",
+        "side_confidence": 0.95,
+        "subpages": [
+          {"side": "left", "page_type": "TableOfContents"},
+          {"side": "right", "page_type": "Preface"}
+        ],
+        "printed_numbers": [
+          {"side": "left", "raw": "v", "normalized": "V", "numeric_value": 5, "numeral_system": "roman", "confidence": 0.8},
+          {"side": "right", "raw": "vi", "normalized": "VI", "numeric_value": 6, "numeral_system": "roman", "confidence": 0.8}
+        ],
+        "headings": [
+          {"text": "Obsah", "level": 1, "side": "left"},
+          {"text": "Předmluva", "level": 1, "side": "right"}
+        ],
+        "toc_entries": [
+          {"title": "Předmluva", "printed_page_reference": "vi", "level": 1},
+          {"title": "Na cestě", "printed_page_reference": "1", "level": 1},
+          {"title": "U Černého jezera", "printed_page_reference": "12", "level": 2},
+          {"title": "Návrat domů", "printed_page_reference": "57", "level": 1}
+        ]
+      },
+      "observation_call_id": "call-0004"
+    },
+    {
+      "scan_id": "scan-0005",
+      "scan_index": 4,
+      "filename": "0005.tif",
+      "image_sha256": "0000000000000000000000000000000000000000000000000000000000000005",
+      "width": 4960,
+      "height": 3508,
+      "observation": {
+        "page_type": "NormalPage",
+        "side": "both",
+        "printed_numbers": [
+          {"side": "left", "raw": "1", "normalized": "1", "numeric_value": 1, "numeral_system": "arabic", "confidence": 0.9},
+          {"side": "right", "raw": "2", "normalized": "2", "numeric_value": 2, "numeral_system": "arabic", "confidence": 0.9}
+        ],
+        "headings": [
+          {"text": "Na cestě", "level": 1, "side": "left"}
+        ]
+      },
+      "observation_call_id": "call-0005"
+    }
+  ],
+  "resolved": {
+    "bibliography": {
+      "title": {"value": "Cesty po Šumavě", "source_scan_ids": ["scan-0001", "scan-0002"]},
+      "subtitle": {"value": "Črty z putování", "source_scan_ids": ["scan-0002"]},
+      "edition": {"value": "Vydání první", "source_scan_ids": ["scan-0003"]},
+      "publication_date": {"value": "1925", "source_scan_ids": ["scan-0002"]},
+      "publisher": [{"value": "Nakladatelství Příklad", "source_scan_ids": ["scan-0002"]}],
+      "publication_place": [{"value": "Praha", "source_scan_ids": ["scan-0002"]}],
+      "manufacture_publisher": [{"value": "Tiskárna Vzor", "source_scan_ids": ["scan-0003"]}],
+      "manufacture_place": [{"value": "Brno", "source_scan_ids": ["scan-0003"]}],
+      "author": [{"value": "Jan Žlutický", "source_scan_ids": ["scan-0001", "scan-0002"]}],
+      "illustrator": [{"value": "M. Řeháková", "source_scan_ids": ["scan-0002"], "notes": "First name not printed."}]
+    },
+    "scans": [
+      {"scan_id": "scan-0001", "page_type": {"value": "FrontCover", "source_scan_ids": ["scan-0001"]}},
+      {
+        "scan_id": "scan-0002",
+        "page_type": {"value": "TitlePage", "source_scan_ids": ["scan-0002"]},
+        "side": {"value": "right", "source_scan_ids": ["scan-0002"]},
+        "page_labels": [
+          {"label": "III", "numeric_value": 3, "numeral_system": "roman", "origin": "inferred", "source_scan_ids": ["scan-0004"], "notes": "Unnumbered; counted back from 'v' on scan-0004."}
+        ]
+      },
+      {
+        "scan_id": "scan-0003",
+        "page_type": {"value": "Impressum", "source_scan_ids": ["scan-0003"]},
+        "side": {"value": "left", "source_scan_ids": ["scan-0003"]},
+        "page_labels": [
+          {"label": "IV", "numeric_value": 4, "numeral_system": "roman", "origin": "inferred", "source_scan_ids": ["scan-0004"]}
+        ]
+      },
+      {
+        "scan_id": "scan-0004",
+        "page_type": {"value": "TableOfContents", "source_scan_ids": ["scan-0004"]},
+        "side": {"value": "both", "source_scan_ids": ["scan-0004"]},
+        "page_labels": [
+          {"side": "left", "label": "V", "numeric_value": 5, "numeral_system": "roman", "source_scan_ids": ["scan-0004"]},
+          {"side": "right", "label": "VI", "numeric_value": 6, "numeral_system": "roman", "source_scan_ids": ["scan-0004"]}
+        ]
+      },
+      {
+        "scan_id": "scan-0005",
+        "page_type": {"value": "NormalPage", "source_scan_ids": ["scan-0005"]},
+        "side": {"value": "both", "source_scan_ids": ["scan-0005"]},
+        "page_labels": [
+          {"side": "left", "label": "1", "numeric_value": 1, "numeral_system": "arabic", "source_scan_ids": ["scan-0005"]},
+          {"side": "right", "label": "2", "numeral_system": "arabic", "numeric_value": 2, "source_scan_ids": ["scan-0005"]}
+        ]
+      }
+    ],
+    "structure": [
+      {
+        "id": "node-1",
+        "level": 1,
+        "title": {"value": "Předmluva", "source_scan_ids": ["scan-0004"]},
+        "printed_page_reference": "vi",
+        "toc_scan_ids": ["scan-0004"],
+        "heading_scan_ids": ["scan-0004"],
+        "start_scan_id": "scan-0004",
+        "end_scan_id": "scan-0004"
+      },
+      {
+        "id": "node-2",
+        "level": 1,
+        "title": {"value": "Na cestě", "source_scan_ids": ["scan-0004", "scan-0005"]},
+        "printed_page_reference": "1",
+        "toc_scan_ids": ["scan-0004"],
+        "heading_scan_ids": ["scan-0005"],
+        "start_scan_id": "scan-0005",
+        "end_scan_id": null,
+        "notes": "End not captured in the available scans."
+      },
+      {
+        "id": "node-3",
+        "parent_id": "node-2",
+        "level": 2,
+        "title": {"value": "U Černého jezera", "source_scan_ids": ["scan-0004"]},
+        "printed_page_reference": "12",
+        "toc_scan_ids": ["scan-0004"]
+      },
+      {
+        "id": "node-4",
+        "level": 1,
+        "title": {"value": "Návrat domů", "source_scan_ids": ["scan-0004"]},
+        "printed_page_reference": "57",
+        "toc_scan_ids": ["scan-0004"]
+      }
+    ],
+    "warnings": [
+      {
+        "code": "toc_target_not_scanned",
+        "message": "TOC references pages 12 and 57, which are not among the scans.",
+        "detected_by": "check",
+        "field_path": "resolved.structure",
+        "scan_ids": ["scan-0004"]
+      }
+    ],
+    "changes": [
+      {
+        "field_path": "resolved.scans[1].page_labels",
+        "old_value": null,
+        "new_value": "III",
+        "reason": "Unnumbered title page; label inferred from the roman sequence starting 'v' on scan-0004.",
+        "source_scan_ids": ["scan-0004"]
+      }
+    ]
+  },
+  "run": {
+    "tool_version": "0.0.1",
+    "started_at": "2026-10-09T10:00:00Z",
+    "finished_at": "2026-10-09T10:01:30Z",
+    "provider": "openrouter",
+    "base_url": "https://openrouter.ai/api/v1",
+    "vision_model": "<vision-model-id>",
+    "postprocess_model": "<text-model-id>",
+    "prompt_versions": {"observe": "observe-v1", "reconcile": "reconcile-v1"},
+    "parameters": {"image_max_side": 2048, "context_recent_scans": 3},
+    "calls": [
+      {"call_id": "call-0001", "stage": "observe", "scan_id": "scan-0001", "provider": "openrouter", "model": "<vision-model-id>", "status": "ok", "latency_s": 4.1, "prompt_tokens": 1500, "completion_tokens": 120, "cost_usd": 0.0012},
+      {"call_id": "call-0002", "stage": "observe", "scan_id": "scan-0002", "provider": "openrouter", "model": "<vision-model-id>", "status": "ok", "latency_s": 5.0, "prompt_tokens": 1600, "completion_tokens": 300, "cost_usd": 0.0015},
+      {"call_id": "call-0003", "stage": "observe", "scan_id": "scan-0003", "provider": "openrouter", "model": "<vision-model-id>", "status": "ok", "latency_s": 3.9, "prompt_tokens": 1700, "completion_tokens": 150, "cost_usd": 0.0013},
+      {"call_id": "call-0004a", "stage": "observe", "scan_id": "scan-0004", "provider": "openrouter", "model": "<vision-model-id>", "attempt": 1, "status": "invalid_response", "latency_s": 6.0, "prompt_tokens": 1800, "completion_tokens": 400, "cost_usd": 0.0018, "error": "schema validation failed: toc_entries.0.title"},
+      {"call_id": "call-0004", "stage": "observe", "scan_id": "scan-0004", "provider": "openrouter", "model": "<vision-model-id>", "attempt": 2, "status": "ok", "latency_s": 6.2, "prompt_tokens": 1800, "completion_tokens": 420, "cost_usd": 0.0018},
+      {"call_id": "call-0005", "stage": "observe", "scan_id": "scan-0005", "provider": "openrouter", "model": "<vision-model-id>", "status": "ok", "latency_s": 4.4, "prompt_tokens": 1900, "completion_tokens": 140, "cost_usd": 0.0014},
+      {"call_id": "call-0006", "stage": "reconcile", "provider": "openrouter", "model": "<text-model-id>", "status": "ok", "latency_s": 12.0, "prompt_tokens": 3000, "completion_tokens": 900, "cost_usd": null}
+    ],
+    "totals": {"requests": 7, "failed_requests": 1, "prompt_tokens": 13300, "completion_tokens": 2430, "cost_usd": 0.009, "cost_complete": false},
+    "warnings": []
+  }
+}

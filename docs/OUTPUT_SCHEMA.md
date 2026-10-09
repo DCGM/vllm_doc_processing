@@ -1,105 +1,82 @@
-# Proposed JSON output schema (design contract for issue #1)
+# Annotated-book JSON schema (`schema_version` 0.1)
 
-**Status: proposed; implementation #1 finalizes exact Pydantic field definitions.**
-One run processes **one book** from one directory of **ordered scans**. Output is a single versioned JSON object, not an export of MetaKat's existing `MetakatIO`. Uncertain fields are null; do not substitute guesses.
+**Source of truth:** `src/vllm_doc_processing/models.py` (Pydantic). Full example: [`examples/annotated_book.example.json`](../examples/annotated_book.example.json). Machine-readable JSON Schema: `AnnotatedBook.model_json_schema()`.
 
-## Sketch (illustrative; not yet a final JSON Schema)
-```json
-{
-  "schema_version": "0.1",
-  "book_id": "book-001",
-  "source": {"input_directory": "<local path, optional>", "scan_count": 2},
-  "bibliography": {
-    "title": {"value": "Example", "source_scan_ids": ["scan-0001"], "origin": "observed"},
-    "subtitle": null,
-    "authors": [{"value": "A. Writer", "role": "author", "source_scan_ids": ["scan-0001"], "origin": "observed"}],
-    "publisher": null,
-    "publication_place": null,
-    "publication_date": null,
-    "edition": null,
-    "part_name": null,
-    "part_number": null,
-    "series_name": null,
-    "series_number": null
-  },
-  "scans": [
-    {
-      "scan_id": "scan-0001",
-      "scan_index": 0,
-      "filename": "0001.tif",
-      "image_sha256": "<hex-digest>",
-      "observation": {
-        "page_type": "TitlePage",
-        "side": "right",
-        "printed_numbers": [],
-        "bibliographic_candidates": [],
-        "headings": [],
-        "toc_entries": []
-      }
-    },
-    {
-      "scan_id": "scan-0002",
-      "scan_index": 1,
-      "filename": "0002.jpg",
-      "image_sha256": "<hex-digest>",
-      "observation": {
-        "page_type": "TableOfContents",
-        "side": "both",
-        "printed_numbers": [
-          {"side": "left", "raw": "iv", "normalized": "IV", "numeric_value": 4, "numeral_system": "roman", "source_scan_id": "scan-0002"},
-          {"side": "right", "raw": "v", "normalized": "V", "numeric_value": 5, "numeral_system": "roman", "source_scan_id": "scan-0002"}
-        ],
-        "bibliographic_candidates": [],
-        "headings": [],
-        "toc_entries": [{"title": "Introduction", "printed_page_reference": "1", "source_scan_id": "scan-0002"}]
-      }
-    }
-  ],
-  "structure": [
-    {
-      "id": "chapter-1",
-      "type": "chapter",
-      "title": "Introduction",
-      "parent_id": null,
-      "start_scan_id": null,
-      "end_scan_id": null,
-      "toc_source_scan_ids": ["scan-0002"]
-    }
-  ],
-  "reconciliation": {"warnings": [], "changes": [], "unresolved_questions": []},
-  "run": {"provider": "openrouter", "vision_model": "<configured model>", "postprocess_model": "<configured model>", "calls": [], "totals": {}}
-}
+One run processes **one book** from one directory of **ordered scans** and writes one JSON object. It is a custom format, not MetaKat's `MetakatIO`. Unknown values are `null` or empty lists; nothing is guessed. All objects reject unknown keys.
+
+## Layers
+| Key | Content | Mutability |
+|---|---|---|
+| `scans[]` | Inventory (ID, index, filename, hash, size) + the vision model's `observation` of that one image. | Observations are never rewritten after being recorded. |
+| `resolved` | Document-level reconciled view: bibliography, per-scan page type/side/labels, chapter structure, warnings and change log. `null` until reconciliation has run. | Produced by the reconciliation stage (#7). |
+| `run` | Provenance: provider, models, prompt versions, non-secret parameters, every API call attempt and usage totals. | Appended during the run. |
+
+```text
+AnnotatedBook
+├─ schema_version: "0.1"   book_id   source {input_directory?, scan_count}
+├─ scans[]: ScanRecord {scan_id, scan_index, filename, image_sha256?, width?, height?,
+│            observation: ScanObservation?, observation_call_id?}
+├─ resolved: ResolvedBook? {bibliography, scans[]: ResolvedScan, structure[]: StructureNode,
+│            warnings[], changes[]}
+└─ run: RunInfo {provider, base_url, vision_model, postprocess_model, prompt_versions,
+         parameters, calls[]: CallRecord, totals: UsageTotals, warnings[]}
 ```
 
-The minimal sketch omits some optional fields for clarity: confidence, per-subpage types, published work/volume identifiers, specific contributor roles, cost, request status, image dimensions, raw-vs-reconciled alternatives, and the full MetaKat vocabulary. Issue #1 must define those accurately before implementing the annotator.
+## Scans and observations
+- `scan_index` is the zero-based physical position in natural filename order. `scan_id` is a stable string ID (convention: `scan-0001` = index 0, assigned by the inventory, #3). Neither is a printed page number.
+- `observation: null` means the scan was not (successfully) observed; failed attempts are in `run.calls`.
+- `ScanObservation` is also the vision model's response contract (#5):
 
-## Target coverage relative to MetaKat
-Reference: https://github.com/DCGM/MetaKat/blob/main/metakat/schemas/base_objects.py
+| Field | Type | Notes |
+|---|---|---|
+| `page_type`, `page_type_confidence` | `PageType?`, `float?` | Whole-image label (comparable with MetaKat's per-image label). |
+| `side`, `side_confidence` | `left \| right \| both`?, `float?` | `both` = two-page spread in one image; unknown/not applicable (cover, spine) = `null`. |
+| `subpages[]` | `{side: left\|right, page_type?, confidence?}` | Optional per-page types; only allowed when `side = both`, distinct sides. |
+| `printed_numbers[]` | `PrintedNumber` | `side: left\|right\|null` (never `both`), `raw` exactly as printed (`[12]`, `xii`), `normalized`, `numeric_value`, `numeral_system: arabic\|roman\|other\|null`, `confidence`, `notes`. A spread holds two independent observations. Empty list = no number seen, which is *not* evidence of a missing scan. |
+| `headings[]` | `{text, level?, side?, confidence?}` | Chapter/section headings visible on the scan. |
+| `toc_entries[]` | `{title, printed_page_reference?, level?, confidence?}` | Short TOC evidence; target page as printed. |
+| `bibliographic_candidates[]` | `{field: BiblioField, value, confidence?, notes?}` | Candidates as printed; competing candidates are all kept. |
+| `notes` | `str?` | Short free-text remarks (illegibility etc.). |
 
-### Bibliography
-Book-specific subset of `MetakatTitle` and `MetakatVolume`: title/subTitle, partNumber/partName, edition, placeTerm, publisher, dateIssued, manufacturePublisher/manufacturePlaceTerm, author/illustrator/photographer/translator/editor, seriesName/seriesNumber; optionally identifiers/language in extension fields. Preserve multiple distinct contributors and publishers and include source scan IDs. Do not assume publisher or printed publication date from image filenames or surrounding context.
+Observations carry no scan IDs: their evidence is the enclosing scan.
 
-### Page type taxonomy
-Use MetaKat's `PageType` values for comparability:
-`Abstract, Advertisement, Appendix, BackCover, BackEndPaper, BackEndSheet, Bibliography, Blank, CalibrationTable, Cover, CustomInclude, Dedication, Edge, Errata, FlyLeaf, FragmentsOfBookbinding, FrontCover, FrontEndPaper, FrontEndSheet, FrontJacket, Frontispiece, Illustration, Impressum, Imprimatur, Index, Jacket, ListOfIllustrations, ListOfMaps, ListOfTables, Map, NormalPage, Obituary, Preface, SheetMusic, Spine, Table, TableOfContents, TitlePage`.
-Unknown = null (not `NormalPage`).
+## Resolved view and provenance
+Every resolved assertion is a `Claim`:
+```json
+{"value": "Cesty po Šumavě", "origin": "observed", "source_scan_ids": ["scan-0002"], "confidence": null, "notes": null}
+```
+`origin`: `observed` (read on a scan), `inferred` (derived, e.g. a page label counted from a sequence), `catalogued` (reserved for external metadata). Confidence is self-reported/heuristic, **not** calibrated.
 
-### Physical side and spreads
-MetaKat `PageSideType` is `left | right | single_page`. This experiment intentionally uses `left | right | both | null` for **scans**, because one image may contain two facing book pages. Mapping to MetaKat requires special handling: `both` is a spread and cannot be represented as one MetaKat side value. Each printed-number observation and optional subpage classification should use `side: left | right | null`. `left` or `right` does not necessarily imply an odd/even number. Unknown is null.
+- `bibliography` — field names equal the `BiblioField` vocabulary. Single claims: `title`, `subtitle`, `part_name`, `part_number`, `edition`, `publication_date`. Lists of claims: `series_name`, `series_number`, `publisher`, `publication_place`, `manufacture_publisher`, `manufacture_place`, `author`, `editor`, `translator`, `illustrator`, `photographer`.
+- `scans[]` (`ResolvedScan`) — `scan_id`, `page_type: Claim[PageType]?`, `side: Claim[ScanSide]?`, `page_labels[]` (`side?`, `label`, `numeric_value?`, `numeral_system?` + origin/source/confidence/notes). Inferred labels for unnumbered pages use `origin: inferred`.
+- `structure[]` (`StructureNode`) — flat list; hierarchy by `parent_id` and `level` (1 = top). `title`/`subtitle`/`part_number` claims, `printed_page_reference` (from TOC), `toc_scan_ids`, `heading_scan_ids`, `start_scan_id`, `end_scan_id` (null when unresolved, e.g. target not scanned), `origin`, `confidence`, `notes`. A TOC entry is evidence, not proof that the destination was captured.
+- `warnings[]` — `{code, message, detected_by: llm|check, field_path?, scan_ids[]}`; conflicts and unresolved questions are flagged here rather than silently fixed.
+- `changes[]` — audit log `{field_path, old_value, new_value, reason, source_scan_ids}` wherever the resolved value differs from (or adds to) the observations.
 
-### Printed pagination
-Always separate `scan_index` from the number printed on the paper. Preserve `raw` (e.g. `[12]`, `xii`), `normalized`, parsed `numeric_value` and `numeral_system: arabic | roman | unknown`, plus side within scan, evidence scan ID, confidence/notes. Zero, repeat, unnumbered and reset sequences are valid observations. Absent printed number is **not** proof of a missing physical scan. Infer probable sequence only in a separate reconciliation field with an origin flag.
+## Run provenance
+`CallRecord` is one request **attempt**: `call_id`, `stage: observe|reconcile|escalate|revisit`, `scan_id?`, `provider`, `model`, `attempt` (retries > 1), `status: ok|invalid_response|error`, `started_at`, `latency_s`, `prompt_tokens`, `completion_tokens`, `cost_usd` (as reported; `null` if not), `error`. `UsageTotals.from_calls()` computes `totals`; `cost_complete: false` means some calls lacked a reported cost. `parameters` must never contain secrets.
 
-### Logical structure
-Nested `chapter` / `section` elements carry ID, parent ID, title and optional subtitle/part number, TOC source scans, observed printed target-page references, resolved start/end scan IDs and associated evidence. Permit unresolved destinations. A TOC entry is evidence, not automatic proof that the destination was captured.
+## Validated invariants
+- `schema_version` is `"0.1"`; `source.scan_count == len(scans)`.
+- `scans` sorted, `scan_index` contiguous from 0; `scan_id`, `filename`, `call_id` unique.
+- Every scan ID referenced anywhere (`resolved.*`, `run.calls[].scan_id`) exists; `observation_call_id` exists in `run.calls`.
+- Printed numbers and subpages never use `side: both`; subpages only on spreads.
+- Structure IDs unique; a parent is listed before its children and has a lower `level`; `start_scan_id` is not after `end_scan_id`. Unresolved bounds are allowed.
+- Confidence values in [0, 1]; non-negative numeric page values, tokens and costs.
 
-## Provenance and reconciliation contract
-Every assertion should support: `value`, `origin: observed | inferred | catalogued` (catalogued reserved for future external metadata), `source_scan_ids`, optional `confidence` and notes. Self-rated VLM confidence must not be treated as a calibrated probability. Initial observations remain unchanged; postprocessing returns consolidated fields, conflict warnings and an audit trail (`field_path`, old/new value, reason, source scan IDs). This document sketches the presentation; #1 must choose the exact normalized Pydantic implementation and update this page accordingly.
+## MetaKat mapping
+Reference: [base_objects.py](https://github.com/DCGM/MetaKat/blob/main/metakat/schemas/base_objects.py). MetaKat is not a runtime dependency.
 
-## JSON invariants
-- `schema_version` required; all input scans preserved and sorted, indices start at zero, IDs unique.
-- No duplicated/missing scan IDs and no references to unknown scan IDs.
-- `both` permits two independent pagination observations; an individual printed-number observation never uses `both`.
-- Absent or illegible content uses null/empty observations, not ungrounded numeric filling.
-- Chapter range references must exist and be ordered; unresolved boundaries permitted.
-- Model/provider/call records preserve the difference between failed, retried, escalated and reconciled requests.
+| MetaKat | This schema |
+|---|---|
+| `PageType` (38 values) | `PageType`, identical strings. Unknown is `null`, not `NormalPage`. |
+| `PageSideType` `left\|right\|single_page` | `ScanSide` `left\|right\|both\|null`. MetaKat `single_page` has no direct equivalent (a single non-facing leaf is `left`/`right` or `null`); `both` (spread) has no MetaKat value. Needs explicit handling in evaluation (#10). |
+| `MetakatPage.pageIndex` / `batch_index` | `scan_index` |
+| `MetakatPage.pageNumber` | `printed_numbers[]` (observed) / `resolved.scans[].page_labels[]` — may be two per spread. |
+| `MetakatTitle` + `MetakatVolume`: `title`, `subTitle`, `partName`, `partNumber`, `edition`, `dateIssued`, `placeTerm`, `publisher`, `manufacturePublisher`, `manufacturePlaceTerm`, `seriesName`, `seriesNumber`, `author`, `editor`, `translator`, `illustrator`, `photographer` | `Bibliography` fields in snake_case (`subtitle`, `publication_date`, `publication_place`, `manufacture_place`, …). MetaKat `(value, confidence, detection_id)` tuples become `Claim` with `source_scan_ids`. `placeTerm` is a list here (several places may be printed). Periodical/issue fields and `redaktor` are out of scope. |
+| `MetakatChapter`: `title`, `title_destination_page`, `subTitle`, `partNumber`, `pageNumber`, `pageIndexToc`, `pageIndexStart`, `pageIndexEnd` | `StructureNode`: `title`, heading text in observations of `heading_scan_ids`, `subtitle`, `part_number`, `printed_page_reference`, `toc_scan_ids`, `start_scan_id`, `end_scan_id`; plus `parent_id`/`level` (MetaKat `Level1Title`/`Level2Title`). |
+| `imageDim` | `width`, `height` |
+| Bounding boxes, ALTO, detections | Out of scope. |
+
+## Versioning
+Breaking changes bump `schema_version` and are listed here with a migration note. Known candidate for a future bump: multiple observations per scan for escalation (#9).
