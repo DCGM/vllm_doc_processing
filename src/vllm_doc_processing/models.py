@@ -20,7 +20,7 @@ from typing import Annotated, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
-SCHEMA_VERSION = "0.1"
+SCHEMA_VERSION = "0.2"
 
 Confidence = Annotated[float | None, Field(ge=0.0, le=1.0)]
 """Self-reported or heuristic score in [0, 1]; not a calibrated probability."""
@@ -34,46 +34,48 @@ class StrictModel(BaseModel):
 
 
 class PageType(StrEnum):
-    """MetaKat ``PageType`` vocabulary, copied verbatim for comparability."""
+    """NDK page types (Pravidla pro popis monografií 2.4, table 1.2.2), values exactly as in NDK METS/MODS.
 
-    ABSTRACT = "Abstract"
-    ADVERTISEMENT = "Advertisement"
-    APPENDIX = "Appendix"
-    BACK_COVER = "BackCover"
-    BACK_END_PAPER = "BackEndPaper"
-    BACK_END_SHEET = "BackEndSheet"
-    BIBLIOGRAPHY = "Bibliography"
-    BLANK = "Blank"
-    CALIBRATION_TABLE = "CalibrationTable"
-    COVER = "Cover"
-    CUSTOM_INCLUDE = "CustomInclude"
-    DEDICATION = "Dedication"
-    EDGE = "Edge"
-    ERRATA = "Errata"
-    FLY_LEAF = "FlyLeaf"
-    FRAGMENTS_OF_BOOKBINDING = "FragmentsOfBookbinding"
-    FRONT_COVER = "FrontCover"
-    FRONT_END_PAPER = "FrontEndPaper"
-    FRONT_END_SHEET = "FrontEndSheet"
-    FRONT_JACKET = "FrontJacket"
-    FRONTISPIECE = "Frontispiece"
-    ILLUSTRATION = "Illustration"
-    IMPRESSUM = "Impressum"
-    IMPRIMATUR = "Imprimatur"
-    INDEX = "Index"
-    JACKET = "Jacket"
-    LIST_OF_ILLUSTRATIONS = "ListOfIllustrations"
-    LIST_OF_MAPS = "ListOfMaps"
-    LIST_OF_TABLES = "ListOfTables"
-    MAP = "Map"
-    NORMAL_PAGE = "NormalPage"
-    OBITUARY = "Obituary"
-    PREFACE = "Preface"
-    SHEET_MUSIC = "SheetMusic"
-    SPINE = "Spine"
-    TABLE = "Table"
-    TABLE_OF_CONTENTS = "TableOfContents"
-    TITLE_PAGE = "TitlePage"
+    MetaKat uses an older, PascalCase variant; see docs/OUTPUT_SCHEMA.md for the mapping.
+    """
+
+    FRONT_JACKET = "frontJacket"
+    COVER = "cover"
+    FRONT_COVER = "frontCover"
+    BACK_COVER = "backCover"
+    FRONT_END_SHEET = "frontEndSheet"
+    BACK_END_SHEET = "backEndSheet"
+    FRONT_END_PAPER = "frontEndPaper"
+    BACK_END_PAPER = "backEndPaper"
+    TITLE_PAGE = "titlePage"
+    PREFACE = "preface"
+    INTRODUCTION = "introduction"
+    NORMAL_PAGE = "normalPage"
+    BLANK = "blank"
+    ILLUSTRATION = "illustration"
+    MAP = "map"
+    TABLE = "table"
+    ADVERTISEMENT = "advertisement"
+    IMPRESSUM = "impressum"
+    COLOPHON = "colophon"
+    FRONTISPIECE = "frontispiece"
+    IMPRIMATUR = "imprimatur"
+    DEDICATION = "dedication"
+    ERRATA = "errata"
+    SHEET_MUSIC = "sheetMusic"
+    APPENDIX = "appendix"
+    BIBLIOGRAPHY = "bibliography"
+    AFTERWORD = "afterword"
+    CONCLUSION = "conclusion"
+    TABLE_OF_CONTENTS = "tableOfContents"
+    INDEX = "index"
+    LIST_OF_ILLUSTRATIONS = "listOfIllustrations"
+    LIST_OF_MAPS = "listOfMaps"
+    LIST_OF_TABLES = "listOfTables"
+    EDGE = "edge"
+    SPINE = "spine"
+    JACKET = "jacket"
+    FLYLEAF = "flyleaf"
 
 
 ScanSide = Literal["left", "right", "both"]
@@ -83,6 +85,11 @@ LeafSide = Literal["left", "right"]
 """Position of one page within a scan; never ``both``. Unknown/not applicable = None."""
 
 NumeralSystem = Literal["arabic", "roman", "other"]
+
+NumberPosition = Literal["top_left", "top_center", "top_right", "bottom_left", "bottom_center", "bottom_right", "other"]
+
+Leaf = Literal["book_block", "plate", "binding", "loose"]
+"""Physical kind of the photographed sheet; decides whether it belongs to the page count (NDK 1.1.4)."""
 
 Origin = Literal["observed", "inferred", "catalogued"]
 """``catalogued`` is reserved for future external metadata."""
@@ -121,6 +128,7 @@ class PrintedNumber(StrictModel):
     normalized: str | None = Field(default=None, description="E.g. '12', 'XII'.")
     numeric_value: int | None = Field(default=None, ge=0)
     numeral_system: NumeralSystem | None = None
+    position: NumberPosition | None = Field(default=None, description="Where on its page the number is printed.")
     confidence: Confidence = None
     notes: str | None = None
 
@@ -159,8 +167,12 @@ class ScanObservation(StrictModel):
 
     page_type: PageType | None = None
     page_type_confidence: Confidence = None
+    page_type_reason: str | None = Field(default=None, description="Visible evidence for the page type, briefly.")
     side: ScanSide | None = None
     side_confidence: Confidence = None
+    side_reason: str | None = Field(default=None, description="Visible evidence for the side, briefly.")
+    leaf: Leaf | None = None
+    leaf_reason: str | None = Field(default=None, description="Visible evidence for the leaf kind, briefly.")
     subpages: list[SubpageObservation] = Field(default_factory=list)
     printed_numbers: list[PrintedNumber] = Field(default_factory=list)
     headings: list[Heading] = Field(default_factory=list)
@@ -414,7 +426,7 @@ class SourceInfo(StrictModel):
 
 
 class AnnotatedBook(StrictModel):
-    schema_version: Literal["0.1"] = SCHEMA_VERSION
+    schema_version: Literal["0.2"] = SCHEMA_VERSION
     book_id: str = Field(min_length=1)
     source: SourceInfo
     scans: list[ScanRecord]

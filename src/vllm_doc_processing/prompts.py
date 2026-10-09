@@ -11,53 +11,57 @@ import hashlib
 from .models import PageType
 
 PAGE_TYPE_DESCRIPTIONS: dict[PageType, str] = {
-    PageType.NORMAL_PAGE: "ordinary page of the main text, including the first page of a chapter; "
-    "use when no more specific type applies",
-    PageType.TITLE_PAGE: "title page (or half-title page) with the title of the book, usually also author and imprint",
-    PageType.IMPRESSUM: "imprint/colophon page with publication or printing details (publisher, printer, year, "
-    "edition, copyright, ISBN), often the back of the title page or the last printed page",
-    PageType.IMPRIMATUR: "ecclesiastical or censorship approval (imprimatur, nihil obstat)",
-    PageType.DEDICATION: "dedication page",
-    PageType.PREFACE: "preface, foreword or introduction placed before the main text",
-    PageType.TABLE_OF_CONTENTS: "table of contents listing chapters/sections with page references",
+    PageType.NORMAL_PAGE: "any page not covered by a more specific type, including the first page of a chapter",
+    PageType.TITLE_PAGE: "title page: page near the start with the full title, usually the author and (part of) "
+    "the publication details; also a half-title page; a cover is not a title page",
+    PageType.PREFACE: "preface or foreword at the start, usually about the origin and aims of the work",
+    PageType.INTRODUCTION: "introduction (úvod): opening part outlining the scope of the work or summarising it",
+    PageType.TABLE_OF_CONTENTS: "any page that shows a table of contents (titles of parts with the pages where "
+    "they start), however small its share of the page",
+    PageType.IMPRESSUM: "imprint identifying the publisher or rights holder, with copyright notice and ISBN, "
+    "usually on the back of the title page",
+    PageType.COLOPHON: "colophon (tiráž): block of bibliographic, publishing and printing details (printer, "
+    "print run, edition, price), usually on the last printed page or the back of the title page",
+    PageType.IMPRIMATUR: "approval to print (imprimatur, nihil obstat, censorship approval)",
+    PageType.DEDICATION: "dedication of the work to a person or institution",
+    PageType.FRONTISPIECE: "illustration on the left page facing the title page",
+    PageType.ILLUSTRATION: "page dominated by a picture: illustration, portrait, plate, photograph, facsimile, "
+    "coat of arms",
+    PageType.MAP: "page or fold-out dominated by a map or plan",
+    PageType.TABLE: "page dominated by a table or a list arranged in columns",
+    PageType.SHEET_MUSIC: "musical notation",
+    PageType.ADVERTISEMENT: "full-page advertisement or inserted advertising, e.g. a publisher's list of books",
+    PageType.ERRATA: "list of errata and their corrections",
+    PageType.APPENDIX: "appendix or supplement after the main text",
+    PageType.AFTERWORD: "afterword (doslov): separate text at the end about this edition or the work, by the "
+    "author, editor or a critic",
+    PageType.CONCLUSION: "conclusion (závěr) evaluating the whole work",
+    PageType.BIBLIOGRAPHY: "bibliography or list of references",
+    PageType.INDEX: "index of names, places or subjects with page references",
     PageType.LIST_OF_ILLUSTRATIONS: "list of illustrations, figures or plates",
     PageType.LIST_OF_MAPS: "list of maps",
     PageType.LIST_OF_TABLES: "list of tables",
-    PageType.ABSTRACT: "abstract or summary (e.g. a summary in another language)",
-    PageType.APPENDIX: "appendix or supplement after the main text",
-    PageType.BIBLIOGRAPHY: "bibliography, list of references or literature",
-    PageType.INDEX: "alphabetical index (of names, places, subjects)",
-    PageType.ERRATA: "list of errata/corrections",
-    PageType.OBITUARY: "obituary",
-    PageType.ADVERTISEMENT: "advertisement, e.g. publisher's list of other books",
-    PageType.ILLUSTRATION: "page dominated by a picture or plate (not a map)",
-    PageType.FRONTISPIECE: "illustration facing (preceding) the title page",
-    PageType.MAP: "page or fold-out dominated by a map",
-    PageType.TABLE: "page dominated by a table",
-    PageType.SHEET_MUSIC: "musical notation",
-    PageType.BLANK: "page with no printed content (show-through from the other side, stamps or "
-    "shelf marks do not count)",
-    PageType.FLY_LEAF: "blank or nearly blank protective leaf at the beginning or end of the book block "
-    "(not an endpaper)",
-    PageType.FRONT_COVER: "outside of the front cover board or front of a paper wrapper",
-    PageType.BACK_COVER: "outside of the back cover board or back of a paper wrapper",
-    PageType.COVER: "cover when front and back cannot be distinguished, or both in one image",
-    PageType.SPINE: "spine of the binding",
+    PageType.BLANK: "page intentionally left without print; library stamps, barcodes, accession numbers, "
+    "shelf-mark labels, handwriting or show-through from the other side do not count as print",
+    PageType.FRONT_COVER: "outside of the front board or of the front paper wrapper",
+    PageType.BACK_COVER: "outside of the back board or wrapper (also when photographed together with the spine)",
+    PageType.COVER: "both boards (front and back) in one image, or a cover whose front/back cannot be told",
+    PageType.FRONT_END_SHEET: "inside of the front board or wrapper (pastedown), with or without an endpaper "
+    "glued onto it",
+    PageType.FRONT_END_PAPER: "front free endpaper: the leaf joining the front board to the book block",
+    PageType.BACK_END_PAPER: "back free endpaper: the leaf joining the book block to the back board",
+    PageType.BACK_END_SHEET: "inside of the back board or wrapper (pastedown)",
+    PageType.FRONT_JACKET: "front of a paper dust jacket (the part covering the front board)",
+    PageType.JACKET: "whole dust jacket photographed from outside, or its back or flaps",
+    PageType.SPINE: "spine of the binding photographed on its own",
     PageType.EDGE: "edge of the book block (top, bottom or fore-edge)",
-    PageType.FRONT_END_SHEET: "front pastedown: endpaper glued to the inside of the front cover board",
-    PageType.FRONT_END_PAPER: "front free endpaper: the loose endpaper leaf after the front pastedown",
-    PageType.BACK_END_PAPER: "back free endpaper: the loose endpaper leaf before the back pastedown",
-    PageType.BACK_END_SHEET: "back pastedown: endpaper glued to the inside of the back cover board",
-    PageType.FRONT_JACKET: "front of a dust jacket",
-    PageType.JACKET: "dust jacket other than its front (back, flaps, spine, whole jacket)",
-    PageType.FRAGMENTS_OF_BOOKBINDING: "fragments of the binding, e.g. waste paper or manuscript fragments "
-    "used in the binding",
-    PageType.CUSTOM_INCLUDE: "material inserted into the book that is not part of the edition (loose insert, "
-    "library slip, attached document)",
-    PageType.CALIBRATION_TABLE: "colour/scale calibration target only, without book content",
+    PageType.FLYLEAF: "loose leaf not bound into the book (loose sheet or inserted document); if it has a more "
+    "specific type (e.g. a loose map), use that type and mark the leaf as loose",
 }
+"""Definitions after NDK, Pravidla pro popis monografií 2.4, section 1.2.1 (our English summary)."""
+assert set(PAGE_TYPE_DESCRIPTIONS) == set(PageType)
 
-OBSERVE_PROMPT_NUMBER = 3
+OBSERVE_PROMPT_NUMBER = 4
 """Bump on any intended change of the observation prompt."""
 
 OBSERVE_SYSTEM = """\
@@ -83,6 +87,7 @@ fields except `notes`.
 - `notes`: at most two short sentences (illegibility, damage, uncertainty), or null.
 
 # side
+`side_reason`: the visible evidence in a few words (e.g. "gutter on the left edge"), or null.
 - "left": one page that is the left (verso) page of an opening. Clues: the binding/gutter is on its \
 right edge; the page number is in the left corner.
 - "right": one page that is the right (recto) page of an opening. Clues: the gutter is on its left \
@@ -95,9 +100,23 @@ map or plate, landscape table), a cover or a jacket is never "both". If in doubt
 # page_type
 One label for the whole image, from this vocabulary:
 {page_types}
-For a spread (side "both") choose the more specific type of the two pages (e.g. TitlePage rather \
-than Blank) and give each page its type in `subpages` (one entry for "left", one for "right"). \
-Leave `subpages` empty unless side is "both". Use null only if the image is unreadable.
+If a page has two roles, take the first of: titlePage before tableOfContents; a cover before \
+tableOfContents; tableOfContents before an end sheet; an end sheet before map; any specific type \
+before flyleaf. For a spread (side "both") choose the more specific type of the two pages (e.g. \
+titlePage rather than blank) and give each page its type in `subpages` (one entry for "left", one \
+for "right"). Leave `subpages` empty unless side is "both". Use null only if the image is unreadable.
+`page_type_reason`: the visible evidence in a few words (e.g. "heading 'Obsah' with page \
+references", "board covered in cloth, title stamped"), or null.
+
+# leaf
+What the photographed sheet is physically, as far as visible (null if unclear):
+- "book_block": a regular leaf of the sewn or glued pages of the book;
+- "plate": an extra leaf inserted into the book block, typically a picture or map on different (glossy, \
+thicker or tinted) paper, printed on one side only, tipped in or with a tissue guard, without the \
+running page number;
+- "binding": covers, boards, pastedowns, endpapers, spine, dust jacket;
+- "loose": a sheet that is not bound in (lying in the book, different size).
+`leaf_reason`: the visible evidence in a few words, or null.
 
 # printed_numbers
 Page numbers printed on the page(s), usually in a top or bottom corner or centred in the header or \
@@ -114,6 +133,8 @@ and numbers in the text.
 - `numeric_value`: the integer value (also for roman numerals), or null.
 - `numeral_system`: "arabic", "roman" or "other".
 - `side`: the page that carries the number ("left"/"right"); null for a single page whose side is unknown.
+- `position`: where on its page the number is printed: "top_left", "top_center", "top_right", \
+"bottom_left", "bottom_center", "bottom_right" or "other".
 - If a number is present but illegible, or you are not sure that a mark is a page number, do not \
 report it; mention it in `notes`.
 - Empty list if no page number is printed.
@@ -163,7 +184,7 @@ def observe_user_prompt(scan_index: int, scan_count: int, context: str | None = 
     return "\n\n".join(parts)
 
 
-RECONCILE_PROMPT_NUMBER = 1
+RECONCILE_PROMPT_NUMBER = 2
 """Bump on any intended change of the reconciliation prompt or of ``reconcile.reconcile_input``."""
 
 RECONCILE_SYSTEM = """\
@@ -173,7 +194,10 @@ separately; the input lists, for every scan, the observed page type, side and pr
 with headings, table-of-contents entries and bibliographic data, plus a summary of the printed page \
 numbering and the page label computed from it in NDK notation (printed numbers plain, computed \
 numbers in brackets, pages outside the page count lettered, e.g. [1a]). The observations may contain \
-errors. "scan N" is a position in the scanning order, never a page number. Answer with four lists.
+errors. With each page type and side the vision model gave its own confidence (0-1, not calibrated) \
+and a short reason; "leaf" says whether the sheet looked like part of the book block, an inserted \
+plate, the binding or a loose sheet (plates, binding and loose sheets are outside the page count). \
+"scan N" is a position in the scanning order, never a page number. Answer with four lists.
 
 # General rules
 - Use only what the input shows. Never invent values, chapters or scans, and never fill gaps with \
@@ -186,19 +210,19 @@ observed in capitals. Do not translate, modernise or expand abbreviations.
 Corrections of page types and sides that are clearly wrong, judged from the neighbouring scans, the \
 page numbering and the observed content. When in doubt, keep the observation; list only scans you \
 change (usually few or none). Never correct a scan that was not observed. NDK conventions:
-- Usual scan order: FrontJacket (front of a dust jacket, if any), FrontCover, FrontEndSheet (inside \
-of the front cover), FrontEndPaper (free endpaper leaf), the book block starting with its first \
-leaf, BackEndPaper, BackEndSheet (inside of the back cover), BackCover, Spine, Jacket (whole jacket); \
-loose leaves come last. Only the outside of a cover board is a cover.
-- FlyLeaf: a loose leaf or insert not bound into the book (placed after the back cover); not a blank \
-protective leaf. Blank: a page without print (stamps, barcodes, shelf marks or handwriting do not \
+- Usual scan order: frontJacket (front of a dust jacket, if any), frontCover, frontEndSheet (inside \
+of the front cover), frontEndPaper (free endpaper leaf), the book block starting with its first \
+leaf, backEndPaper, backEndSheet (inside of the back cover), backCover, spine, jacket (whole jacket); \
+loose leaves (flyleaf) come last. Only the outside of a cover board is a cover.
+- flyleaf: a loose leaf or insert not bound into the book (placed after the back cover); not a blank \
+protective leaf. blank: a page without print (stamps, barcodes, shelf marks or handwriting do not \
 count as print); blank pages inside the book block are counted in the pagination.
-- TitlePage: the front of the title leaf with the full title (also a half-title); a cover is not a \
-title page. Frontispiece: an illustration on the left page facing the title page. Impressum: imprint \
-or colophon (copyright, ISBN, printer, edition).
-- A page showing any table of contents is TableOfContents. A page with two roles takes the first of: \
-TitlePage before TableOfContents; a cover before TableOfContents; TableOfContents before an end \
-sheet; an end sheet before Map.
+- titlePage: the front of the title leaf with the full title (also a half-title); a cover is not a \
+title page. frontispiece: an illustration on the left page facing the title page. impressum: copyright \
+notice and ISBN; colophon: printing and publication details (printer, print run, edition).
+- A page showing any table of contents is tableOfContents. A page with two roles takes the first of: \
+titlePage before tableOfContents; a cover before tableOfContents; tableOfContents before an end \
+sheet; an end sheet before map; a specific type before flyleaf.
 - Sides: single-page scans of a bound book alternate right, left, right, ...; the first page of the \
 book block is a right page; odd page numbers are normally on right pages. Covers, spine, edge, \
 jacket, fold-outs and loose sheets have no side ("none"). "both" only for two facing pages in one image.

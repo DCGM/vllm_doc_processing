@@ -100,6 +100,7 @@ The output JSON format is defined by Pydantic models in `src/vllm_doc_processing
 - [JSON output schema and MetaKat mapping](docs/OUTPUT_SCHEMA.md)
 - [Prompts](docs/PROMPTS.md)
 - [Agent development instructions](AGENTS.md)
-- [MetaKat](https://github.com/DCGM/MetaKat) — basis for comparison and page-type/metadata vocabulary
+- [MetaKat](https://github.com/DCGM/MetaKat) — basis for comparison and bibliographic field vocabulary
+- [NDK rules for describing monographs](https://standardy.ndk.cz/ndk/standardy-digitalizace/ppp_mono_2.4_final.pdf/at_download/file) — page types and page-number notation
 
 **Privacy and cost:** Book images are uploaded to a selected external API provider, which may have its own retention, billing and routing policies. Do not use sensitive/rights-restricted images without authorization; never commit credentials, scanned datasets, or raw API payloads.

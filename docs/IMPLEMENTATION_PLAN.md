@@ -41,7 +41,7 @@ Implemented by #2: `--config config.json` (precedence defaults < file < CLI), `-
 ### Document reasoning specifics
 - Scan index is an ordered physical image index, starting at zero. Printed number is separately observed and may use Arabic or Roman numerals, omit numbers, repeat, or restart.
 - `side=both` means a two-page opening scanned into one image. Represent left and right printed numbers separately. A cover, blank image or single scan might not have a meaningful side: use null.
-- Page type uses MetaKat's labels (see OUTPUT_SCHEMA). If a spread contains different types, allow each visible leaf page its own classification or optional subpage labels.
+- Page type uses the NDK page-type vocabulary (see OUTPUT_SCHEMA; mapped to MetaKat's older labels for evaluation). If a spread contains different types, allow each visible leaf page its own classification or optional subpage labels.
 - The per-image prompt should detect bibliography on title/colophon pages, TOC entries, chapter headings, printed numbers and legible relevant evidence; avoid full OCR.
 - Text-only postprocessing should consolidate bibliographic evidence, align TOC entries with destination chapters, infer chapter start/end scan IDs, detect conflicting/missing page-number sequences and explain uncertainty.
 - Page labels, page types and sides follow the Czech NDK rules for describing monographs ([Pravidla pro popis monografií](https://standardy.ndk.cz/ndk/standardy-digitalizace/ppp_mono_2.4_final.pdf/at_download/file)), which also underlie the MetaKat/Kramerius ground truth: printed numbers plain, computed numbers in brackets, pages outside the count lettered (`[1a]`, `[26a]`). Reconciliation computes the labels deterministically and may correct clearly wrong page types and sides.

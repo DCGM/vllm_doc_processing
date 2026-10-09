@@ -13,17 +13,21 @@ from vllm_doc_processing.observe import observe_scan
 from vllm_doc_processing.prompts import OBSERVE_PROMPT_NUMBER, OBSERVE_SYSTEM, PAGE_TYPE_DESCRIPTIONS, PROMPT_VERSIONS, observe_user_prompt
 
 SPREAD = {
-    "page_type": "TableOfContents",
+    "page_type": "tableOfContents",
     "page_type_confidence": 0.9,
+    "page_type_reason": "right page lists chapters with page numbers",
     "side": "both",
     "side_confidence": 0.95,
+    "side_reason": "two facing pages with the gutter in the middle",
+    "leaf": "book_block",
+    "leaf_reason": None,
     "subpages": [
-        {"side": "left", "page_type": "NormalPage", "confidence": 0.8},
-        {"side": "right", "page_type": "TableOfContents", "confidence": 0.9},
+        {"side": "left", "page_type": "normalPage", "confidence": 0.8},
+        {"side": "right", "page_type": "tableOfContents", "confidence": 0.9},
     ],
     "printed_numbers": [
         {"side": "left", "raw": "[xii]", "normalized": "XII", "numeric_value": 12, "numeral_system": "roman",
-         "confidence": 0.7, "notes": None},
+         "position": "bottom_left", "confidence": 0.7, "notes": None},
         {"side": "right", "raw": "13", "normalized": "13", "numeric_value": 13, "numeral_system": "arabic",
          "confidence": 0.9, "notes": None},
     ],
@@ -33,7 +37,7 @@ SPREAD = {
     "notes": None,
 }
 BLANK = {
-    "page_type": "Blank", "page_type_confidence": 0.9, "side": "left", "side_confidence": 0.6, "subpages": [],
+    "page_type": "blank", "page_type_confidence": 0.9, "side": "left", "side_confidence": 0.6, "subpages": [],
     "printed_numbers": [], "headings": [], "toc_entries": [], "bibliographic_candidates": [], "notes": None,
 }
 
@@ -75,10 +79,13 @@ def test_observe_scan_sends_one_image_and_validates_spread(book):
     assert "Scan position: 2 of 3" in user["content"][-1]["text"]
     assert "Previous: TitlePage" in user["content"][-1]["text"]
     assert request["response_format"]["json_schema"]["name"] == "ScanObservation"
+    schema = request["response_format"]["json_schema"]["schema"]
+    assert {"page_type_reason", "side_reason", "leaf", "leaf_reason"} <= set(schema["required"])
 
     obs = result.value
     assert obs.side == "both" and [n.numeric_value for n in obs.printed_numbers] == [12, 13]
     assert obs.toc_entries[0].printed_page_reference == "17"
+    assert obs.leaf == "book_block" and obs.printed_numbers[0].position == "bottom_left"
     assert result.call.scan_id == "a" and result.call.stage == "observe"
 
 
@@ -104,7 +111,7 @@ def test_observe_command_prints_json_lines_and_reports_failures(book, monkeypatc
 
     lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert [(line["scan_id"], line["scan_index"]) for line in lines] == [("c", 0), ("b", 2)]  # order-file order
-    assert lines[0]["observation"]["page_type"] == "Blank" and lines[0]["error"] is None
+    assert lines[0]["observation"]["page_type"] == "blank" and lines[0]["error"] is None
     assert lines[1]["observation"] is None and "failed after 4 attempt(s)" in lines[1]["error"]
     assert [c["status"] for c in lines[1]["calls"]] == ["invalid_response"] * 4
     assert all(line["prompt_version"] == PROMPT_VERSIONS["observe"] for line in lines)

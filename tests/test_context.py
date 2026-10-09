@@ -14,7 +14,7 @@ from vllm_doc_processing.pipeline import observe_book
 
 TITLE = {
     **BLANK,
-    "page_type": "TitlePage",
+    "page_type": "titlePage",
     "side": "right",
     "bibliographic_candidates": [
         {"field": "title", "value": "Cesty po Šumavě", "confidence": 0.9, "notes": None},
@@ -26,7 +26,7 @@ TITLE = {
 def text_page(number, heading=None):
     return {
         **BLANK,
-        "page_type": "NormalPage",
+        "page_type": "normalPage",
         "side": "left" if number % 2 == 0 else "right",
         "printed_numbers": [
             {"side": None, "raw": str(number), "normalized": str(number), "numeric_value": number,
@@ -50,7 +50,7 @@ def test_context_summarizes_prior_observations():
     assert "Table of contents entries seen on scan 2 (1 entries)" in context
     assert "scan 3 not observed" in context and "page number 13 on scan 4 after 13 on scan 2" in context
     recent = context.split("Previous scans:\n")[1].splitlines()
-    assert recent == ["- scan 3: not observed", '- scan 4: NormalPage; right; page 13; heading "KAPITOLA I. Úvod"']
+    assert recent == ["- scan 3: not observed", '- scan 4: normalPage; right; page 13; heading "KAPITOLA I. Úvod"']
     assert build_context([], recent_scans=2, max_chars=2000) is None
 
 
@@ -133,7 +133,7 @@ def test_mock_book_run_is_sequential_bounded_and_deterministic(tmp_path, caplog)
         assert sum(part["type"] == "image_url" for part in content) == 1  # never a prior image
         texts.append(content[-1]["text"])
     assert "Context" not in texts[0]
-    assert '"Cesty po Šumavě" (scan 1)' in texts[1] and "- scan 1: TitlePage" in texts[1]
+    assert '"Cesty po Šumavě" (scan 1)' in texts[1] and "- scan 1: titlePage" in texts[1]
     assert "scan 6 not observed" in texts[6] and "- scan 6: not observed" in texts[6]
     assert '"KAPITOLA II." (scan 10)' in texts[19]
     contexts = [t.split("may contain errors):\n")[1].rsplit("\n\nAnnotate", 1)[0] for t in texts[1:]]
@@ -160,4 +160,4 @@ def test_use_context_off_sends_no_context(tmp_path):
     inventory = build_inventory(book_dir, book_dir / "order.txt")
     book = observe_book(LLMClient(config, client=fake, sleep=lambda s: None), inventory)
     assert all("Context" not in r["messages"][1]["content"][-1]["text"] for r in fake.requests)
-    assert book.run.parameters["use_context"] is False and book.scans[1].observation.page_type == "Blank"
+    assert book.run.parameters["use_context"] is False and book.scans[1].observation.page_type == "blank"

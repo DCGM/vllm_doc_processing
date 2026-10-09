@@ -250,7 +250,8 @@ def reconcile_input(scans: list[ScanRecord], pagination: Pagination) -> str:
     lines += ["", "Printed page numbering (computed from the observations):"]
     lines += pagination.runs or ["- no page numbers observed"]
     lines += [f"- {w.code}: {w.message}" for w in pagination.warnings]
-    lines += ["", "Scans (type; side; printed page numbers; computed NDK page label):"]
+    lines += ["", "Scans (page type and side with self-reported confidence and reason; leaf kind; printed page "
+              "numbers; computed NDK page label):"]
     for s in scans:
         label = pagination.page_number(s.scan_index) or "unresolved"
         if s.observation is None:
@@ -261,11 +262,17 @@ def reconcile_input(scans: list[ScanRecord], pagination: Pagination) -> str:
 
 
 def _scan_lines(position: int, obs: ScanObservation, label: str) -> list[str]:
-    side = obs.side or "side unknown"
+    side = _evidence(obs.side or "side unknown", obs.side_confidence if obs.side else None, obs.side_reason)
     if obs.subpages:
         side += " (" + ", ".join(f"{s.side} {s.page_type.value if s.page_type else '?'}" for s in obs.subpages) + ")"
-    parts = [obs.page_type.value if obs.page_type else "page type unknown", side]
-    numbers = [f"{n.raw}{f' ({n.side})' if n.side else ''}" for n in obs.printed_numbers]
+    page_type = obs.page_type.value if obs.page_type else "page type unknown"
+    parts = [_evidence(page_type, obs.page_type_confidence, obs.page_type_reason), side]
+    if obs.leaf or obs.leaf_reason:
+        parts.append(_evidence(f"leaf {obs.leaf or 'unknown'}", None, obs.leaf_reason))
+    numbers = [
+        f"{n.raw}{f' ({n.side})' if n.side else ''}{f' at {n.position}' if n.position else ''}"
+        for n in obs.printed_numbers
+    ]
     parts.append("printed " + ", ".join(numbers) if numbers else "no printed number")
     parts.append(f"label {label}")
     lines = [f"scan {position}: " + "; ".join(parts)]
@@ -276,7 +283,16 @@ def _scan_lines(position: int, obs: ScanObservation, label: str) -> list[str]:
         for e in obs.toc_entries
     ]
     lines += [f"  {c.field.value}: {_q(c.value)}" for c in obs.bibliographic_candidates]
+    if obs.notes:
+        lines.append(f"  note: {_q(obs.notes)}")
     return lines
+
+
+def _evidence(value: str, confidence: float | None, reason: str | None) -> str:
+    """'titlePage (0.9, "full title and author")'; only the parts that are known."""
+    extra = [f"{confidence:g}"] if confidence is not None else []
+    extra += [_q(reason)] if reason else []
+    return f"{value} ({', '.join(extra)})" if extra else value
 
 
 def _parse_reference(ref: str) -> tuple[str, int] | None:

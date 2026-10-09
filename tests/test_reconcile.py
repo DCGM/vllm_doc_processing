@@ -8,10 +8,11 @@ from vllm_doc_processing.config import build_config
 from vllm_doc_processing.llm import LLMClient
 from vllm_doc_processing.models import AnnotatedBook, ScanObservation, ScanRecord, SourceInfo, dump_json
 from vllm_doc_processing import reconcile
+from vllm_doc_processing.prompts import PROMPT_VERSIONS
 from vllm_doc_processing.reconcile import ReconcileError, reconcile_book
 
 
-def page(number=None, system="arabic", page_type="NormalPage", heading=None, level=1, toc=(), biblio=(),
+def page(number=None, system="arabic", page_type="normalPage", heading=None, level=1, toc=(), biblio=(),
          side=None, number_side=None):
     numbers = []
     if number is not None:
@@ -32,37 +33,37 @@ def page(number=None, system="arabic", page_type="NormalPage", heading=None, lev
 
 # index: expected NDK label (scan position = index + 1)
 PAGES = [
-    page(page_type="FrontCover", biblio=[("title", "CESTY PO ŠUMAVĚ")]),  # 0 [Ia]
-    page(page_type="Blank"),  # 1 [Ib]: corrected to FrontEndSheet by the LLM, so not counted
-    page(page_type="TitlePage", side="left", biblio=[("title", "Cesty po Šumavě"), ("author", "Karel Klostermann"),
+    page(page_type="frontCover", biblio=[("title", "CESTY PO ŠUMAVĚ")]),  # 0 [Ia]
+    page(page_type="blank"),  # 1 [Ib]: corrected to FrontEndSheet by the LLM, so not counted
+    page(page_type="titlePage", side="left", biblio=[("title", "Cesty po Šumavě"), ("author", "Karel Klostermann"),
                                                      ("publication_place", "V Praze")]),  # 2 [I]
-    page(page_type="Blank"),  # 3 [II]
-    page("III", "roman", "TableOfContents",
+    page(page_type="blank"),  # 3 [II]
+    page("III", "roman", "tableOfContents",
          toc=[("Úvod", "1"), ("Kapitola II. Na horách", "6"), ("Kapitola III. Domů", "40")]),  # 4 III
-    page(page_type="Blank"),  # 5 [IV]
-    page("V", "roman", "Preface"),  # 6 V
+    page(page_type="blank"),  # 5 [IV]
+    page("V", "roman", "preface"),  # 6 V
     page(1, heading="KAPITOLA I. Úvod"),  # 7 1
     page(),  # 8 [2]
     page(3),  # 9 3
     page(31),  # 10 4: misread, corrected (NDK 1.1.2) and flagged
     page(5),  # 11 5
-    page(page_type="Illustration"),  # 12 [5a]: plate outside the count
-    page(page_type="Blank"),  # 13 [5b]
+    page(page_type="illustration"),  # 12 [5a]: plate outside the count
+    page(page_type="blank"),  # 13 [5b]
     page(6, heading="Kapitola II. Na horách"),  # 14 6
     page(heading="Na vrcholu", level=2),  # 15 unresolved: 6 -> 9 over one page (scan missing?)
     page(9),  # 16 9
     page(10),  # 17 10
-    page(page_type="Blank"),  # 18 [11]
-    page(page_type="BackCover"),  # 19 [11a]
+    page(page_type="blank"),  # 18 [11]
+    page(page_type="backCover"),  # 19 [12]: after the last printed number everything is counted (NDK 1.1.4 c)
 ]
 EXPECTED = ["[Ia]", "[Ib]", "[I]", "[II]", "III", "[IV]", "V", "1", "[2]", "3", "4", "5", "[5a]", "[5b]", "6", None,
-            "9", "10", "[11]", "[11a]"]
+            "9", "10", "[11]", "[12]"]
 
 ANSWER = {
     "scan_corrections": [
-        {"scan": 2, "page_type": "FrontEndSheet", "side": "keep", "reason": "Inside of the front cover."},
+        {"scan": 2, "page_type": "frontEndSheet", "side": "keep", "reason": "Inside of the front cover."},
         {"scan": 3, "page_type": None, "side": "right", "reason": "First page of the book block is a right page."},
-        {"scan": 99, "page_type": "Blank", "side": "keep", "reason": "Out of range."},
+        {"scan": 99, "page_type": "blank", "side": "keep", "reason": "Out of range."},
     ],
     "bibliography": [
         {"field": "title", "value": "Cesty po Šumavě", "source_scans": [1, 3], "notes": None},
@@ -122,15 +123,15 @@ def test_reconcile_checks_llm_answer_and_flags_conflicts_without_editing_observa
     assert [part["type"] for part in request["messages"][1]["content"]] == ["text"]
     text = request["messages"][1]["content"][0]["text"]
     assert "- scans 5-7: roman III-V" in text and 'TOC entry level 1: "Kapitola III. Domů" -> "40"' in text
-    assert "scan 9: NormalPage; side unknown; no printed number; label [2]" in text  # every scan is listed
+    assert "scan 9: normalPage (0.9); side unknown; no printed number; label [2]" in text  # every scan is listed
     assert [s.observation for s in out.scans] == [s.observation for s in book.scans] and book.resolved is None
     assert [c.stage for c in out.run.calls] == ["reconcile"] and out.run.postprocess_model == "text/model"
-    assert out.run.prompt_versions["reconcile"].startswith("1-")
+    assert out.run.prompt_versions["reconcile"] == PROMPT_VERSIONS["reconcile"]
     assert AnnotatedBook.model_validate_json(dump_json(out)) == out
 
     # Corrections from the LLM change the resolved view (logged), and the numbering follows them.
     scans = out.resolved.scans
-    assert (scans[1].page_type.value, scans[1].page_type.origin) == ("FrontEndSheet", "inferred")
+    assert (scans[1].page_type.value, scans[1].page_type.origin) == ("frontEndSheet", "inferred")
     assert scans[2].side.value == "right" and scans[2].page_type.origin == "observed"
     assert [c.field_path for c in out.resolved.changes][:2] == ["resolved.scans[1].page_type", "resolved.scans[2].side"]
     assert warnings(out, "invalid_scan_reference")
@@ -172,7 +173,7 @@ def test_reconcile_checks_llm_answer_and_flags_conflicts_without_editing_observa
 
 def test_toc_reference_resolved_through_computed_label_and_mismatch_flagged():
     pages = list(PAGES)
-    pages[4] = page("III", "roman", "TableOfContents", toc=[("Úvod", "1"), ("Kapitola II. Na horách", "6"),
+    pages[4] = page("III", "roman", "tableOfContents", toc=[("Úvod", "1"), ("Kapitola II. Na horách", "6"),
                                                              ("Část", "2")])
     pages[15] = page(heading="II. Na horách")
     answer = {
@@ -207,18 +208,40 @@ def test_ndk_spread_and_side_parity_decide_which_unnumbered_pages_are_counted():
     pages = [
         page(3, side="right"),
         spread,  # left page unnumbered -> "[4],5"
-        page(page_type="Illustration", side="right"),  # plate recto: 6 would be on the wrong side -> lettered
-        page(page_type="Blank", side="left"),  # [6]
+        page(page_type="illustration", side="right"),  # plate recto: 6 would be on the wrong side -> lettered
+        page(page_type="blank", side="left"),  # [6]
         page(side="right"),  # [7]
         page(8, side="left"),
     ]
     assert ndk_labels(pages) == ["3", "[4],5", "[5a]", "[6]", "[7]", "8"]
 
 
+def test_observed_plate_leaf_is_lettered_even_where_parity_would_count_it():
+    # Between 16 (left) and 18 (left) one of three pages is 17. Parity would count the plate recto; its observed
+    # leaf kind says it is an inserted plate, so the following right page is [17] (NDK: 16, [16a], [16b], [17], 18).
+    plate = {**page(page_type="illustration", side="right"), "leaf": "plate", "leaf_reason": "glossy paper, tipped in"}
+    pages = [page(16, side="left"), plate, {**page(page_type="blank", side="left"), "leaf": "plate"},
+             page(side="right"), page(18, side="left")]
+    assert ndk_labels(pages) == ["16", "[16a]", "[16b]", "[17]", "18"]
+    pages[3] = page(side="left")  # parity alone (no leaf evidence) would count the plate recto
+    pages[1], pages[2] = page(page_type="illustration", side="right"), page(page_type="blank", side="left")
+    assert ndk_labels(pages) == ["16", "[17]", "[17a]", "[17b]", "18"]
+
+
+def test_reproduces_kramerius_labels_of_a_1902_monograph():
+    # Structure of a local Kramerius record (Keltové a Němci či Slované?, 1902, 74 scans), with idealized
+    # observations: front binding lettered, unprinted front pages counted, back matter counted to the end.
+    pages = [page(page_type="frontCover", side=None), page(page_type="frontEndSheet"), page(page_type="titlePage"),
+             *[page() for _ in range(4)], *[page(n) for n in range(6, 70)], page(page_type="blank"),
+             page(page_type="backEndSheet"), page(page_type="backCover")]
+    expected = ["[1a]", "[1b]", "[1]", "[2]", "[3]", "[4]", "[5]", *map(str, range(6, 70)), "[70]", "[71]", "[72]"]
+    assert ndk_labels(pages) == expected
+
+
 def test_ndk_unnumbered_volume_counts_from_one_and_letters_binding():
-    pages = [page(page_type="FrontCover"), page(page_type="TitlePage"), page(page_type="Blank"), page(),
-             page(page_type="BackCover")]
-    assert ndk_labels(pages) == ["[1a]", "[1]", "[2]", "[3]", "[3a]"]
+    pages = [page(page_type="frontCover"), page(page_type="titlePage"), page(page_type="blank"), page(),
+             page(page_type="backCover")]
+    assert ndk_labels(pages) == ["[1a]", "[1]", "[2]", "[3]", "[4]"]
 
 
 def test_too_long_input_fails_before_any_request():
