@@ -23,7 +23,14 @@ This repository is a small **research experiment**, not a production pipeline. D
 - Do not commit API keys, complete copyrighted scans, local datasets, API payload logs, checkpoints, generated results, or embedded base64 images.
 
 ## Agent workflow
-- Work on **one issue at a time**, ideally one focused branch/PR per issue. Put `Closes #N` in PR description when complete. Respect issue dependencies.
+- Work on **one issue at a time**, one focused branch and PR per issue. Respect issue dependencies. Workflow:
+  1. Pick the issue; check its blockers are merged.
+  2. `git fetch` and create a branch from up-to-date `origin/main` (e.g. `issue-N-short-name`).
+  3. Edit, test, commit.
+  4. Push and open a PR with `Closes #N` in the description.
+  5. Review; address findings with follow-up commits on the same branch.
+  6. Merge (rebase onto `main` if it moved), make sure the issue is closed, delete the branch (remote and local).
+- Add new configuration settings to `config.Config` (and README's configuration table, plus the example config) in the issue that first needs them; do not pre-design settings for later issues.
 - Before edits, inspect only the relevant code and docs; avoid unrelated refactoring and abstraction.
 - Add only a few high-value **offline** tests using mocked API responses for each behavior (schemas, sorting, retry, context, resume, invariants). Live API tests must be explicit opt-in.
 - Update README, schema docs and example files whenever CLI/JSON behavior changes; keep the examples executable. Preserve schema_version and document migrations when breaking JSON format.
