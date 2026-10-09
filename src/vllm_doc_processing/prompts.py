@@ -163,11 +163,67 @@ def observe_user_prompt(scan_index: int, scan_count: int, context: str | None = 
     return "\n\n".join(parts)
 
 
+RECONCILE_PROMPT_NUMBER = 1
+"""Bump on any intended change of the reconciliation prompt or of ``reconcile.reconcile_input``."""
+
+RECONCILE_SYSTEM = """\
+You reconcile the annotations of one scanned printed book. A vision model looked at each scan \
+separately; the input lists what it observed on the scans that matter here (headings, \
+table-of-contents entries, bibliographic data, changes of page type) and a summary of the printed \
+page numbering. The observations may contain errors. "scan N" is a position in the scanning order, \
+never a page number. Answer with three lists.
+
+# General rules
+- Use only what the input shows. Never invent values, chapters or scans, and never fill gaps with \
+general knowledge about the book. Omit what is unknown.
+- Keep text exactly as observed (language, spelling, diacritics); you may use normal case for text \
+observed in capitals. Do not translate, modernise or expand abbreviations.
+- Refer to scans only by the numbers N of "scan N" in the input.
+
+# bibliography
+The book's bibliographic data, merged from all scans. One entry per value; one entry per person.
+- Choose the most complete form, preferring the title page over cover, spine or half-title. Merge \
+forms that differ only in case, spacing, punctuation or line breaks into one entry.
+- title, subtitle, part_name, part_number, edition, publication_date: at most one entry each. If \
+the scans show genuinely different values, choose one and report the others in `issues`.
+- Move a value to another field only when its observed field is clearly wrong (e.g. a subtitle \
+reported as a second title), and explain this in `notes`.
+- `source_scans`: every scan that shows the value. `notes`: short reason for any choice or change, \
+else null.
+
+# chapters
+The chapter and section list of the book in reading order, built from the TOC entries and the \
+headings.
+- One entry per chapter or section. A TOC entry and the heading that opens the same chapter form \
+ONE entry: match them by number and title (allowing for abbreviation, case and small reading \
+errors) and by the TOC page reference against the printed page numbering.
+- Include chapters listed in the TOC whose heading was not observed, and headings not listed in \
+the TOC. Do not include the caption of the TOC page itself ("Obsah", "Contents"), running heads, \
+or group captions that are not chapters.
+- `title`: as printed in the TOC entry; if there is none, as in the heading.
+- `level`: 1 = top level (part or chapter), 2 = section within it, and so on; consistent across \
+the book.
+- `toc_scans`: the scans whose TOC lists the entry (empty if none). `printed_page_reference`: the \
+page reference exactly as observed in that TOC entry, or null.
+- `heading_scan`: the scan where the heading of this chapter was observed, or null. Never guess a \
+scan from page numbers; that is computed afterwards.
+- `notes`: short remark on doubtful matches, else null.
+
+# issues
+Contradictions and doubts worth a human check that the other lists cannot express, e.g. \
+different titles on cover and title page, a TOC entry whose heading is missing although its \
+pages were scanned, inconsistent heading levels. `code`: short snake_case slug; `message`: one \
+sentence; `scans`: the scans involved. Do not repeat the page-numbering findings given in the \
+input. Empty list if there are none.
+"""
+
+
 def _version(number: int, text: str) -> str:
     return f"{number}-{hashlib.sha256(text.encode()).hexdigest()[:8]}"
 
 
 PROMPT_VERSIONS: dict[str, str] = {
     "observe": _version(OBSERVE_PROMPT_NUMBER, OBSERVE_SYSTEM + observe_user_prompt(0, 1, "{context}")),
+    "reconcile": _version(RECONCILE_PROMPT_NUMBER, RECONCILE_SYSTEM),
 }
 """Recorded in ``run.prompt_versions``."""

@@ -68,6 +68,12 @@ class Config(BaseModel):
     context_max_chars: int = Field(
         default=2000, ge=200, description="Hard limit on the length of the earlier-scan context text."
     )
+    reconcile_max_chars: int = Field(
+        default=100_000, ge=1000, description="Longest reconciliation input text; longer books fail before the request."
+    )
+    reconcile_max_output_tokens: int | None = Field(
+        default=16000, ge=1, description="Output token cap of the reconciliation request; None = no cap."
+    )
     request_params: dict[str, JsonValue] = Field(
         default_factory=dict,
         description="Extra request body fields, e.g. temperature, max_completion_tokens, reasoning settings.",
