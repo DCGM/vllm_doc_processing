@@ -6,6 +6,7 @@ contains the API key, the prompt or image data.
 
 from __future__ import annotations
 
+import json
 import logging
 import random
 import re
@@ -13,10 +14,11 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from types import SimpleNamespace
 from datetime import UTC, datetime
 from typing import Any, Generic, TypeVar
 
-from openai import APIConnectionError, APIStatusError, OpenAI
+from openai import APIConnectionError, APIResponseValidationError, APIStatusError, OpenAI
 
 # Same strict-schema conversion that ``client.chat.completions.parse()`` uses; we call ``create()``
 # ourselves so that token usage and cost are recorded even when the response fails validation.
@@ -109,6 +111,10 @@ class LLMClient:
                 value = _parse(response, response_model)
             except _InvalidResponse as exc:
                 status, error, retryable = "invalid_response", str(exc), True
+            except APIResponseValidationError as exc:
+                # The SDK could not parse the response; the raw body may still carry usage and cost.
+                response = _raw_body(exc.body)
+                status, error, retryable = "invalid_response", f"{type(exc).__name__}: {exc.message}", True
             except APIStatusError as exc:
                 status, error = "error", f"HTTP {exc.status_code}: {exc.message}"
                 retryable = exc.status_code in RETRYABLE_STATUS or exc.status_code >= 500
@@ -204,6 +210,16 @@ def _parse(response: Any, response_model: type[T]) -> T:
         raise _InvalidResponse(
             f"response does not match {response_model.__name__} ({len(errors)} error(s)); {where}: {first['msg']}"
         ) from None
+
+
+def _raw_body(body: object) -> Any:
+    """Attribute view of a raw JSON response body for ``_record``; None if it is not a JSON object."""
+    if not isinstance(body, dict):
+        return None
+    try:
+        return json.loads(json.dumps(body), object_hook=lambda d: SimpleNamespace(**d))
+    except (TypeError, ValueError):
+        return None
 
 
 def _retry_after(exc: APIStatusError) -> float | None:

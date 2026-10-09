@@ -132,6 +132,30 @@ def test_invalid_json_is_retried_and_paid_attempts_are_recorded():
     assert len({c.call_id for c in result.calls}) == 5
 
 
+def response_validation_error(body):
+    response = httpx.Response(200, request=httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions"))
+    return openai.APIResponseValidationError(response, body)
+
+
+def test_sdk_response_validation_error_is_retried_then_exhausts():
+    raw = completion("{}").model_dump()
+    raw["choices"] = "garbage"
+    fake = FakeClient(response_validation_error(raw), completion('{"side": "right", "note": null}'))
+    client, sleeps = make_client(fake)
+    result = ask(client)
+    assert result.value.side == "right" and len(sleeps) == 1
+    first = result.calls[0]
+    assert (first.status, first.attempt, first.prompt_tokens, first.cost_usd) == ("invalid_response", 1, 1000, 0.0012)
+    assert "APIResponseValidationError" in first.error and first.latency_s is not None
+
+    fake = FakeClient(*(response_validation_error("not json") for _ in range(3)))
+    client, sleeps = make_client(fake, max_retries=2)
+    with pytest.raises(LLMError, match="after 3 attempt") as exc:
+        ask(client)
+    assert [c.status for c in exc.value.calls] == ["invalid_response"] * 3 and len(sleeps) == 2
+    assert exc.value.calls[0].prompt_tokens is None
+
+
 def test_unsupported_structured_outputs_fails_without_retry():
     error = http_error(openai.NotFoundError, 404, "No endpoints found that can handle the requested parameters.")
     client, sleeps = make_client(FakeClient(error))
