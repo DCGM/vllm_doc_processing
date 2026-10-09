@@ -17,6 +17,11 @@ from vllm_doc_processing.models import (
 EXAMPLE = Path(__file__).parents[1] / "examples" / "annotated_book.example.json"
 
 
+def sid(n: int) -> str:
+    """Scan ID (page UUID) of the n-th scan in the example."""
+    return f"5b1f0c2e-7d4a-4e8b-9c3f-{n:012d}"
+
+
 def example() -> dict:
     return json.loads(EXAMPLE.read_text(encoding="utf-8"))
 
@@ -44,7 +49,7 @@ def test_bibliography_fields_match_biblio_vocabulary():
 
 def test_unknown_scan_reference_rejected():
     data = example()
-    data["resolved"]["structure"][0]["start_scan_id"] = "scan-9999"
+    data["resolved"]["structure"][0]["start_scan_id"] = "no-such-scan"
     with pytest.raises(ValidationError, match="unknown scan IDs"):
         AnnotatedBook.model_validate(data)
 
@@ -53,10 +58,10 @@ def test_unknown_scan_reference_rejected():
     "mutate, message",
     [
         (lambda d: d["scans"].reverse(), "contiguous scan_index"),
-        (lambda d: d["scans"][1].update(scan_id="scan-0001"), "duplicate scan_id"),
+        (lambda d: d["scans"][1].update(scan_id=sid(1)), "duplicate scan_id"),
         (lambda d: d["source"].update(scan_count=4), "scan_count"),
         (lambda d: d["scans"][0].update(observation_call_id="nope"), "observation_call_id"),
-        (lambda d: d["resolved"]["structure"][1].update(start_scan_id="scan-0005", end_scan_id="scan-0004"), "after end"),
+        (lambda d: d["resolved"]["structure"][1].update(start_scan_id=sid(5), end_scan_id=sid(4)), "after end"),
         (lambda d: d["resolved"]["structure"][2].update(parent_id="node-4"), "listed before"),
         (lambda d: d["resolved"]["structure"][2].update(level=1), "level must exceed"),
         (lambda d: d["scans"][1]["observation"].update(subpages=[{"side": "left"}]), "side='both'"),
@@ -72,7 +77,7 @@ def test_invariants(mutate, message):
 
 def test_unknowns_stay_null():
     book = AnnotatedBook.model_validate(
-        {"book_id": "b", "source": {"scan_count": 1}, "scans": [{"scan_id": "scan-0001", "scan_index": 0, "filename": "a.jpg"}]}
+        {"book_id": "b", "source": {"scan_count": 1}, "scans": [{"scan_id": sid(1), "scan_index": 0, "filename": "a.jpg"}]}
     )
     assert book.scans[0].observation is None and book.resolved is None
     assert book.schema_version == "0.1"

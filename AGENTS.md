@@ -12,7 +12,7 @@ This repository is a small **research experiment**, not a production pipeline. D
 
 ## Non-negotiable design constraints
 - Python >=3.11; simple installable CLI. Prefer stdlib `argparse`, `pathlib`, `json`, `logging` + `pydantic`, `Pillow`, and official `openai` SDK. No LangChain, agents framework, DB, server, queue, orchestration stack, or cloud infrastructure.
-- Input: **one** directory of scans of **one book**, natural filename order. Preserve original filenames and stable scan IDs; never confuse scan index with printed pagination.
+- Input: **one** directory of scans of **one book** plus an order file (image names without extensions, one per line, in scan order); filenames (usually UUIDs) are not sortable. Preserve original filenames and use the listed names as stable scan IDs; never confuse scan index with printed pagination.
 - Analyze scans **sequentially**, one scan at a time, with the current image and bounded **text/structured context** from prior results. Never pass every previous image or endlessly append the full conversation.
 - Use OpenAI-compatible hosted APIs, especially OpenRouter and OpenAI. Model identifiers, provider/base URL, image detail/resizing, request parameters, context budget, retry limits, and escalation policy must be configurable, not hard-coded.
 - Use structured JSON responses wherever supported; parse and validate with Pydantic. Fail explicitly if a provider/model lacks required capabilities. OpenRouter routing must not silently ignore required JSON-schema parameters.
@@ -35,7 +35,7 @@ This repository is a small **research experiment**, not a production pipeline. D
 src/vllm_doc_processing/
     cli.py          # argparse entry point
     config.py       # provider/model/budget configuration
-    images.py       # natural sorting and image conversion
+    images.py       # order file, image inventory and conversion
     models.py       # Pydantic request/output contracts
     llm.py          # OpenAI-compatible API adapter
     prompts.py      # versioned extraction and reconciliation prompts

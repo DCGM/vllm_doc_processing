@@ -13,7 +13,7 @@ One run processes **one book** from one directory of **ordered scans** and write
 
 ```text
 AnnotatedBook
-├─ schema_version: "0.1"   book_id   source {input_directory?, scan_count}
+├─ schema_version: "0.1"   book_id   source {input_directory?, order_file?, scan_count}
 ├─ scans[]: ScanRecord {scan_id, scan_index, filename, image_sha256?, width?, height?,
 │            observation: ScanObservation?, observation_call_id?}
 ├─ resolved: ResolvedBook? {bibliography, scans[]: ResolvedScan, structure[]: StructureNode,
@@ -23,7 +23,8 @@ AnnotatedBook
 ```
 
 ## Scans and observations
-- `scan_index` is the zero-based physical position in natural filename order. `scan_id` is a stable string ID (convention: `scan-0001` = index 0, assigned by the inventory, #3). Neither is a printed page number.
+- Scan order comes from an **order file** (one image name without extension per line, in physical order; recorded in `source.order_file`). Filenames are usually UUIDs and are not sorted.
+- `scan_index` is the zero-based line position in the order file. `scan_id` is the listed name (e.g. the page UUID), so it is stable even if scans are added; `filename` is the matching file including its extension. Neither is a printed page number.
 - `observation: null` means the scan was not (successfully) observed; failed attempts are in `run.calls`.
 - `ScanObservation` is also the vision model's response contract (#5):
 
@@ -43,7 +44,7 @@ Observations carry no scan IDs: their evidence is the enclosing scan.
 ## Resolved view and provenance
 Every resolved assertion is a `Claim`:
 ```json
-{"value": "Cesty po Šumavě", "origin": "observed", "source_scan_ids": ["scan-0002"], "confidence": null, "notes": null}
+{"value": "Cesty po Šumavě", "origin": "observed", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000002"], "confidence": null, "notes": null}
 ```
 `origin`: `observed` (read on a scan), `inferred` (derived, e.g. a page label counted from a sequence), `catalogued` (reserved for external metadata). Confidence is self-reported/heuristic, **not** calibrated.
 
@@ -58,7 +59,7 @@ Every resolved assertion is a `Claim`:
 
 ## Validated invariants
 - `schema_version` is `"0.1"`; `source.scan_count == len(scans)`.
-- `scans` sorted, `scan_index` contiguous from 0; `scan_id`, `filename`, `call_id` unique.
+- `scans` in order-file order, `scan_index` contiguous from 0; `scan_id`, `filename`, `call_id` unique.
 - Every scan ID referenced anywhere (`resolved.*`, `run.calls[].scan_id`) exists; `observation_call_id` exists in `run.calls`.
 - Printed numbers and subpages never use `side: both`; subpages only on spreads.
 - Structure IDs unique; a parent is listed before its children and has a lower `level`; `start_scan_id` is not after `end_scan_id`. Unresolved bounds are allowed.
