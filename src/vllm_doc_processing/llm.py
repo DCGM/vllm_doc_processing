@@ -14,8 +14,8 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from types import SimpleNamespace
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any, Generic, TypeVar
 
 from openai import APIConnectionError, APIResponseValidationError, APIStatusError, OpenAI
