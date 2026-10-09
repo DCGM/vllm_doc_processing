@@ -187,7 +187,8 @@ def _open(data: bytes, path: Path) -> Image.Image:
     """Open and fully decode one single-frame image; errors name only the file, not its directory."""
     try:
         image = Image.open(io.BytesIO(data))
-        if getattr(image, "n_frames", 1) > 1:
+        # Camera JPEGs often open as MPO (main image + previews); its first frame is the image itself.
+        if getattr(image, "n_frames", 1) > 1 and image.format != "MPO":
             raise InputError(f"{path.name}: multi-frame image ({image.n_frames} frames); expected one image per scan")
         image.load()
     except (UnidentifiedImageError, OSError, SyntaxError, ValueError, Image.DecompressionBombError) as exc:
