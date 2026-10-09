@@ -114,3 +114,18 @@ def test_observe_command_rejects_unknown_scan_ids(book, capsys):
     argv = ["observe", "--input", str(book), "--provider", "openrouter", "--model", "m", "--scans", "zzz"]
     assert cli.main(argv) == cli.EXIT_CONFIG
     assert "zzz" in capsys.readouterr().err
+
+
+def test_observe_selected_scan_ignores_broken_unrelated_scans(book, monkeypatch, capsys):
+    """Only the requested scans are matched and decoded; positions still come from the whole order file."""
+    (book / "order.txt").write_text("c\nmissing\na\nb\n")
+    (book / "a.png").write_bytes(b"corrupt")
+    fake = FakeClient(completion(json.dumps(BLANK)))
+    monkeypatch.setattr(cli, "LLMClient", lambda config: LLMClient(config, client=fake, sleep=lambda s: None))
+    argv = ["observe", "--input", str(book), "--provider", "openrouter", "--model", "vendor/vlm", "--scans", "b"]
+    assert cli.main(argv) == 0
+
+    (line,) = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert (line["scan_id"], line["scan_index"]) == ("b", 3)
+    user_text = fake.requests[0]["messages"][1]["content"][-1]["text"]
+    assert "Scan position: 4 of 4" in user_text

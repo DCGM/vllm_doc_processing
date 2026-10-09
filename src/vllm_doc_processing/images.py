@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import io
+from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -108,14 +109,28 @@ class Inventory:
         return self.book_dir / scan.filename
 
 
-def build_inventory(book_dir: Path, order_file: Path, max_pages: int | None = None) -> Inventory:
-    """Validate the whole order file, then hash and decode the first ``max_pages`` listed images."""
+def build_inventory(
+    book_dir: Path, order_file: Path, max_pages: int | None = None, scan_ids: Collection[str] | None = None
+) -> Inventory:
+    """Validate the whole order file, then hash and decode the first ``max_pages`` listed images.
+
+    With ``scan_ids`` only those scans are matched, hashed and decoded (other listed files may be
+    missing or corrupt); they keep their order-file indices and ``total_listed`` counts every entry.
+    """
     names = read_order_file(order_file)
-    matches, unlisted = match_files(book_dir, names)
-    selected = names[:max_pages] if max_pages else names
+    if scan_ids is None:
+        matches, unlisted = match_files(book_dir, names)
+        selected = list(enumerate(names[:max_pages] if max_pages else names))
+    else:
+        unknown = sorted(set(scan_ids) - set(names))
+        if unknown:
+            raise InputError(f"scan IDs not in the order file {order_file}: {', '.join(unknown)}")
+        selected = [(i, name) for i, name in enumerate(names) if name in scan_ids]
+        matches, _ = match_files(book_dir, [name for _, name in selected])
+        unlisted = []
     scans: list[ScanRecord] = []
     problems: list[str] = []
-    for index, name in enumerate(selected):
+    for index, name in selected:
         path = matches[name]
         try:
             data = path.read_bytes()

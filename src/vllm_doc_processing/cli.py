@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import API_KEY_ENV, Config, ConfigError, api_key, build_config, read_config_file, require_api_key
-from .images import Inventory, build_inventory, read_order_file
+from .images import Inventory, build_inventory
 from .llm import LLMClient, LLMError
 from .models import CallRecord, UsageTotals
 from .observe import observe_scan
@@ -109,8 +109,10 @@ def _check_paths(args: argparse.Namespace) -> Path:
     return order_file
 
 
-def _inventory(book_dir: Path, order_file: Path, max_pages: int | None) -> Inventory:
-    inventory = build_inventory(book_dir, order_file, max_pages)
+def _inventory(
+    book_dir: Path, order_file: Path, max_pages: int | None, scan_ids: set[str] | None = None
+) -> Inventory:
+    inventory = build_inventory(book_dir, order_file, max_pages, scan_ids)
     if inventory.unlisted:
         shown = ", ".join(inventory.unlisted[:10]) + (" ..." if len(inventory.unlisted) > 10 else "")
         print(
@@ -152,23 +154,17 @@ def run_process(args: argparse.Namespace) -> int:
     return EXIT_RUNTIME
 
 
-def run_observe(args: argparse.Namespace, client: LLMClient | None = None) -> int:
+def run_observe(args: argparse.Namespace) -> int:
     config = _load_config(args)
     order_file = _order_file(args)
     if args.scans:
-        names = read_order_file(order_file)
-        unknown = [s for s in args.scans if s not in names]
-        if unknown:
-            raise ConfigError(f"scan IDs not in the order file: {', '.join(unknown)}")
-        # Decode only as far into the book as needed.
-        inventory = _inventory(args.input, order_file, max(names.index(s) for s in args.scans) + 1)
-        scans = [s for s in inventory.scans if s.scan_id in set(args.scans)]
+        inventory = _inventory(args.input, order_file, None, scan_ids=set(args.scans))
     else:
         if args.max_pages < 1:
             raise ConfigError("--max-pages must be at least 1")
         inventory = _inventory(args.input, order_file, args.max_pages)
-        scans = inventory.scans
-    client = client or LLMClient(config)
+    scans = inventory.scans
+    client = LLMClient(config)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s", stream=sys.stderr)
 
     calls: list[CallRecord] = []

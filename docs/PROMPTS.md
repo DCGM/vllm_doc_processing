@@ -46,6 +46,6 @@ About 4k of the prompt tokens are the system prompt (identical for every scan, s
 - *False spreads:* a single bilingual TOC page (two stacked language versions) and a journal cover were labelled `both`; the fold-out map was `both` until v3 (gpt-5.4-mini) and remains `both` with gpt-4.1-mini.
 - *TOC section captions as headings* ("ARTICLES", "Contents No. 6/1985").
 - *Weak cases:* the Latin occasional print's dedicatory title page was labelled NormalPage/TitlePage/CustomInclude across runs, with the dedicatee and opening phrase once reported as `author`/`publisher` (v1/v2); journal issue numbers land in `series_number`/`part_number` (periodicals are out of scope).
-- *Run-away output:* one gpt-4.1-mini call (v2) produced 27.5k completion tokens (whitespace before a valid 470-character JSON) and took 194 s, costing as much as ~25 normal scans. Set an output cap, e.g. `"request_params": {"max_completion_tokens": 4000}`; a capped response is then rejected as truncated and retried.
+- *Run-away output:* one gpt-4.1-mini call (v2) produced 27.5k completion tokens (whitespace before a valid 470-character JSON) and took 194 s, costing as much as ~25 normal scans. Since then `max_output_tokens` (default 4000) caps every request; a capped response is rejected as truncated and retried.
 
 Outputs vary between runs at default temperature, so these are qualitative observations, not accuracy figures; measured accuracy is the subject of #10.
