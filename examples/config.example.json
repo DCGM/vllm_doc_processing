@@ -10,5 +10,7 @@
   "request_timeout_s": 180,
   "max_retries": 3,
   "max_output_tokens": 4000,
+  "context_recent_scans": 5,
+  "context_max_chars": 2000,
   "request_params": {}
 }

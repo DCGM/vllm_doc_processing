@@ -2,7 +2,7 @@
 
 Experimental **API-only vision-language model processing of digitized books**. A folder of ordered book scans is analyzed image by image using a vision model with context derived from earlier extracted pages. A final text LLM pass reconciles bibliographic metadata, page numbering, page types, sides, table of contents and chapter structure into a custom JSON.
 
-**Status: early implementation.** The output data model (`src/vllm_doc_processing/models.py`, issue #1) the CLI/configuration scaffold (issue #2) the scan inventory/image preparation (issue #3) the OpenAI/OpenRouter structured-output API adapter (issue #4) and the single-scan annotation prompt (issue #5, `vllm-doc observe`) exist; `vllm-doc process` can validate a run with `--dry-run` but does not process whole books yet. Start with the dependency-ordered [issues](https://github.com/DCGM/vllm_doc_processing/issues) (#1–#8 for MVP); code follows in separate PRs.
+**Status: early implementation.** The output data model (`src/vllm_doc_processing/models.py`, issue #1) the CLI/configuration scaffold (issue #2) the scan inventory/image preparation (issue #3) the OpenAI/OpenRouter structured-output API adapter (issue #4) the single-scan annotation prompt (issue #5, `vllm-doc observe`) and sequential observation of a whole book with bounded context from earlier scans (issue #6, library function `pipeline.observe_book`, not yet wired to the CLI) exist; `vllm-doc process` can validate a run with `--dry-run` but does not process whole books yet. Start with the dependency-ordered [issues](https://github.com/DCGM/vllm_doc_processing/issues) (#1–#8 for MVP); code follows in separate PRs.
 
 ## Scope
 - Input: directory of book images (one image per scan: single page or facing-page spread) plus an order file listing the image names without extensions, one per line, in physical scan order. Filenames (usually UUIDs) carry no order.
@@ -62,6 +62,8 @@ Precedence: **built-in defaults < `--config` JSON file < command-line flags**. T
 | `request_timeout_s` | no | `180`; timeout of one request attempt in seconds |
 | `max_retries` | no | `3`; retries after rate limits (429), timeouts/connection errors, 408/409/5xx and responses that fail schema validation |
 | `max_output_tokens` | no | `4000`; output token cap of each request, sent as `max_completion_tokens` (openai) or `max_tokens` (openrouter); includes reasoning tokens, so raise it for high reasoning effort. A truncated answer is rejected and retried, so the cap bounds the cost of run-away output. `null` = no cap |
+| `context_recent_scans` | no | `5`; number of earlier scans summarized one line each in the text context sent with the next scan (0–50, see [docs/PROMPTS.md](docs/PROMPTS.md#context-from-earlier-scans-issue-6)) |
+| `context_max_chars` | no | `2000`; hard limit on the length of that context text (minimum 200); oldest scan lines are dropped first |
 | `request_params` | no | `{}`; extra request body fields, e.g. `{"temperature": 0, "reasoning_effort": "low"}`; with OpenRouter also `provider` routing preferences. `model`, `messages`, `response_format`, `stream`, `n`, `tools`, `tool_choice`, `max_tokens`, `max_completion_tokens` are rejected |
 
 ### Input scans
