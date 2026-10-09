@@ -8,7 +8,7 @@ import sys
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-from .config import API_KEY_ENV, ConfigError, build_config, read_config_file, require_api_key
+from .config import API_KEY_ENV, ConfigError, api_key, build_config, read_config_file, require_api_key
 
 EXIT_CONFIG = 2
 EXIT_RUNTIME = 1
@@ -45,7 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--base-url", help="override the provider's default OpenAI-compatible base URL")
     p.add_argument("--model", help="vision model ID (required here or in --config)")
     p.add_argument("--postprocess-model", help="text model ID for reconciliation (default: --model)")
-    p.add_argument("--dry-run", action="store_true", help="validate configuration and paths, print the effective settings, make no API calls")
+    p.add_argument("--dry-run", action="store_true", help="validate configuration and paths, print the effective settings, make no API calls (a missing API key is only a warning)")
     return parser
 
 
@@ -75,9 +75,11 @@ def run_process(args: argparse.Namespace) -> int:
     }
     config = build_config(file_values, cli_values)
     order_file = _check_paths(args)
-    require_api_key(config)
 
     if args.dry_run:
+        key_set = api_key(config) is not None
+        if not key_set:
+            print(f"vllm-doc: warning: {config.api_key_env} is not set; a real run would fail", file=sys.stderr)
         summary = {
             "input": str(args.input),
             "order_file": str(order_file),
@@ -86,10 +88,12 @@ def run_process(args: argparse.Namespace) -> int:
             "effective_base_url": config.effective_base_url,
             "effective_postprocess_model": config.effective_postprocess_model,
             "api_key_env": config.api_key_env,
+            "api_key_set": key_set,
         }
         print(json.dumps(summary, indent=2))
         return 0
 
+    require_api_key(config)
     print("vllm-doc: error: processing is not implemented yet; use --dry-run", file=sys.stderr)
     return EXIT_RUNTIME
 
