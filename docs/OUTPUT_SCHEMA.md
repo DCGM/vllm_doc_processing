@@ -7,7 +7,7 @@ One run processes **one book** from one directory of **ordered scans** and write
 ## Layers
 | Key | Content | Mutability |
 |---|---|---|
-| `scans[]` | Inventory (ID, index, filename, hash, size) + the vision model's `observation` of that one image. | Observations are never rewritten after being recorded. |
+| `scans[]` | Inventory (ID, index, filename, hash, size) + the vision model's `observation` of that one image. | Never edited by reconciliation. With escalation (#9) only the stronger model's observation is kept; the cheaper model's call stays in `run.calls`. |
 | `resolved` | Document-level reconciled view: bibliography, per-scan page type/side/labels, chapter structure, warnings and change log. `null` until reconciliation has run. | Produced by the reconciliation stage (#7). |
 | `run` | Provenance: provider, models, prompt versions, non-secret parameters, every API call attempt and usage totals. | Appended during the run. |
 
@@ -25,7 +25,7 @@ AnnotatedBook
 ## Scans and observations
 - Scan order comes from an **order file** (one image name without extension per line, in physical order; recorded in `source.order_file`). Filenames are usually UUIDs and are not sorted.
 - `scan_index` is the zero-based line position in the order file. `scan_id` is the listed name (e.g. the page UUID), so it is stable even if scans are added; `filename` is the matching file including its extension. Neither is a printed page number.
-- `observation: null` means the scan was not (successfully) observed; failed attempts are in `run.calls`.
+- Exactly one `observation` per scan. `null` means the scan was not (successfully) observed; failed attempts are in `run.calls`. `observation_call_id` names the call that produced it: when a scan is escalated (#9) the stronger model's output replaces the cheaper one, and the cheaper call stays only in `run.calls`.
 - `ScanObservation` is also the vision model's response contract (#5):
 
 | Field | Type | Notes |
@@ -80,4 +80,4 @@ Reference: [base_objects.py](https://github.com/DCGM/MetaKat/blob/main/metakat/s
 | Bounding boxes, ALTO, detections | Out of scope. |
 
 ## Versioning
-Breaking changes bump `schema_version` and are listed here with a migration note. Known candidate for a future bump: multiple observations per scan for escalation (#9).
+Breaking changes bump `schema_version` and are listed here with a migration note.
