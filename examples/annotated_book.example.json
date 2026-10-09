@@ -152,6 +152,10 @@
         "scan_id": "5b1f0c2e-7d4a-4e8b-9c3f-000000000004",
         "page_type": {"value": "TableOfContents", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"]},
         "side": {"value": "both", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"]},
+        "subpages": [
+          {"side": "left", "page_type": {"value": "TableOfContents", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"]}},
+          {"side": "right", "page_type": {"value": "Preface", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"]}}
+        ],
         "page_labels": [
           {"side": "left", "label": "V", "numeric_value": 5, "numeral_system": "roman", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"]},
           {"side": "right", "label": "VI", "numeric_value": 6, "numeral_system": "roman", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"]}

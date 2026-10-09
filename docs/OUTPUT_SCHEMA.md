@@ -49,19 +49,23 @@ Every resolved assertion is a `Claim`:
 `origin`: `observed` (read on a scan), `inferred` (derived, e.g. a page label counted from a sequence), `catalogued` (reserved for external metadata). Confidence is self-reported/heuristic, **not** calibrated.
 
 - `bibliography` — field names equal the `BiblioField` vocabulary. Single claims: `title`, `subtitle`, `part_name`, `part_number`, `edition`, `publication_date`. Lists of claims: `series_name`, `series_number`, `publisher`, `publication_place`, `manufacture_publisher`, `manufacture_place`, `author`, `editor`, `translator`, `illustrator`, `photographer`.
-- `scans[]` (`ResolvedScan`) — `scan_id`, `page_type: Claim[PageType]?`, `side: Claim[ScanSide]?`, `page_labels[]` (`side?`, `label`, `numeric_value?`, `numeral_system?` + origin/source/confidence/notes). Inferred labels for unnumbered pages use `origin: inferred`.
+- `scans[]` (`ResolvedScan`) — exactly one record per input scan, in scan order (values may stay `null`): `scan_id`, `page_type: Claim[PageType]?`, `side: Claim[ScanSide]?`, `subpages[]` (`{side: left|right, page_type: Claim[PageType]?}`, only when the resolved side is `both`), `page_labels[]` (`side?`, `label`, `numeric_value?`, `numeral_system?` + origin/source/confidence/notes). Inferred labels for unnumbered pages use `origin: inferred`.
 - `structure[]` (`StructureNode`) — flat list; hierarchy by `parent_id` and `level` (1 = top). `title`/`subtitle`/`part_number` claims, `printed_page_reference` (from TOC), `toc_scan_ids`, `heading_scan_ids`, `start_scan_id`, `end_scan_id` (null when unresolved, e.g. target not scanned), `origin`, `confidence`, `notes`. A TOC entry is evidence, not proof that the destination was captured.
 - `warnings[]` — `{code, message, detected_by: llm|check, field_path?, scan_ids[]}`; conflicts and unresolved questions are flagged here rather than silently fixed.
 - `changes[]` — audit log `{field_path, old_value, new_value, reason, source_scan_ids}` wherever the resolved value differs from (or adds to) the observations.
 
 ## Run provenance
-`CallRecord` is one request **attempt**: `call_id`, `stage: observe|reconcile|escalate|revisit`, `scan_id?`, `provider`, `model`, `attempt` (retries > 1), `status: ok|invalid_response|error`, `started_at`, `latency_s`, `prompt_tokens`, `completion_tokens`, `cost_usd` (as reported; `null` if not), `error`. `UsageTotals.from_calls()` computes `totals`; `cost_complete: false` means some calls lacked a reported cost. `parameters` must never contain secrets.
+`CallRecord` is one request **attempt**: `call_id`, `stage: observe|reconcile|escalate|revisit`, `scan_id?`, `provider`, `model`, `attempt` (retries > 1), `status: ok|invalid_response|error`, `started_at`, `latency_s`, `prompt_tokens`, `completion_tokens`, `cost_usd` (as reported; `null` if not), `error`. `totals` must equal `UsageTotals.from_calls(calls)` (call `run.refresh_totals()` after adding calls); `cost_complete: false` means some calls lacked a reported cost. `parameters` must never contain secrets.
 
 ## Validated invariants
 - `schema_version` is `"0.1"`; `source.scan_count == len(scans)`.
 - `scans` in order-file order, `scan_index` contiguous from 0; `scan_id`, `filename`, `call_id` unique.
-- Every scan ID referenced anywhere (`resolved.*`, `run.calls[].scan_id`) exists; `observation_call_id` exists in `run.calls`.
-- Printed numbers and subpages never use `side: both`; subpages only on spreads.
+- Every scan ID referenced anywhere (`resolved.*`, `run.calls[].scan_id`) exists.
+- If `resolved` is present, `resolved.scans` lists every input scan exactly once, in scan order.
+- `observation_call_id` (only set together with an `observation`) refers to a successful (`ok`) `observe` or `escalate` call for the same scan.
+- `run.totals` is consistent with `run.calls`.
+- `dump_json()` re-validates the whole document, so in-place edits that break an invariant fail before writing.
+- Printed numbers and subpages never use `side: both`; subpages only on spreads (observed and resolved), with distinct sides.
 - Structure IDs unique; a parent is listed before its children and has a lower `level`; `start_scan_id` is not after `end_scan_id`. Unresolved bounds are allowed.
 - Confidence values in [0, 1]; non-negative numeric page values, tokens and costs.
 

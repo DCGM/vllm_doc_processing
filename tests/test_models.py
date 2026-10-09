@@ -66,6 +66,23 @@ def test_unknown_scan_reference_rejected():
         (lambda d: d["resolved"]["structure"][2].update(level=1), "level must exceed"),
         (lambda d: d["scans"][1]["observation"].update(subpages=[{"side": "left"}]), "side='both'"),
         (lambda d: d["scans"][0].update(extra_field=1), "extra"),
+        # resolved view must cover every scan
+        (lambda d: d["resolved"].update(scans=[]), "one record per input scan"),
+        (lambda d: d["resolved"]["scans"].pop(2), "one record per input scan"),
+        (lambda d: d["resolved"]["scans"].reverse(), "one record per input scan"),
+        # resolved spread subpages
+        (lambda d: d["resolved"]["scans"][1].update(subpages=[{"side": "left"}]), "resolved as side='both'"),
+        (lambda d: d["resolved"]["scans"][3]["subpages"][1].update(side="left"), "distinct sides"),
+        # observation provenance
+        (lambda d: d["scans"][0].update(observation_call_id="call-0002"), "for this scan"),
+        (lambda d: d["scans"][3].update(observation_call_id="call-0004a"), "successful"),
+        (lambda d: d["run"]["calls"][6].update(scan_id=sid(1)) or d["scans"][0].update(observation_call_id="call-0006"), "observe/escalate"),
+        (lambda d: d["scans"][0].update(observation=None), "without an observation"),
+        # usage totals
+        (lambda d: d["run"]["totals"].update(prompt_tokens=1), "run.totals"),
+        (lambda d: d["run"]["totals"].update(cost_usd=1.0), "run.totals"),
+        (lambda d: d["run"]["totals"].update(cost_complete=True), "run.totals"),
+        (lambda d: d["run"]["calls"].pop(), "run.totals"),
     ],
 )
 def test_invariants(mutate, message):
@@ -73,6 +90,23 @@ def test_invariants(mutate, message):
     mutate(data)
     with pytest.raises(ValidationError, match=message):
         AnnotatedBook.model_validate(data)
+
+
+def test_resolved_spread_keeps_per_page_types():
+    resolved = load_json(EXAMPLE.read_bytes()).resolved.scans[3]
+    assert [(p.side, p.page_type.value) for p in resolved.subpages] == [
+        ("left", PageType.TABLE_OF_CONTENTS),
+        ("right", PageType.PREFACE),
+    ]
+
+
+def test_totals_refresh_and_dump_revalidates():
+    book = load_json(EXAMPLE.read_bytes())
+    book.run.calls.pop()  # in-place edit bypasses validation ...
+    with pytest.raises(ValidationError, match="run.totals"):
+        dump_json(book)  # ... but is caught before serialization
+    book.run.refresh_totals()
+    assert load_json(dump_json(book)).run.totals.requests == 6
 
 
 def test_unknowns_stay_null():
