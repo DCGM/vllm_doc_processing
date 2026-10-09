@@ -40,6 +40,11 @@ class Config(BaseModel):
         default=None, min_length=1, description="Text model ID for reconciliation; None means reuse `model`."
     )
     base_url: str | None = Field(default=None, description="None means the provider's default base URL.")
+    max_pages: int | None = Field(default=None, ge=1, description="Process only the first N listed scans; None = all.")
+    image_max_side: int | None = Field(
+        default=2048, ge=256, description="Downscale uploads so the longest side is at most this; None = never."
+    )
+    image_format: Literal["jpeg", "png"] = Field(default="jpeg", description="Encoding of converted/resized uploads.")
 
     @field_validator("base_url")
     @classmethod

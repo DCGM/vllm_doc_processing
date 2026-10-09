@@ -9,6 +9,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from .config import API_KEY_ENV, ConfigError, api_key, build_config, read_config_file, require_api_key
+from .images import build_inventory
 
 EXIT_CONFIG = 2
 EXIT_RUNTIME = 1
@@ -45,7 +46,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--base-url", help="override the provider's default OpenAI-compatible base URL")
     p.add_argument("--model", help="vision model ID (required here or in --config)")
     p.add_argument("--postprocess-model", help="text model ID for reconciliation (default: --model)")
-    p.add_argument("--dry-run", action="store_true", help="validate configuration and paths, print the effective settings, make no API calls (a missing API key is only a warning)")
+    p.add_argument("--max-pages", type=int, metavar="N", help="process only the first N scans of the order file")
+    p.add_argument("--dry-run", action="store_true", help="validate configuration, paths and scan images, print the effective settings, make no API calls (a missing API key is only a warning)")
     return parser
 
 
@@ -72,9 +74,20 @@ def run_process(args: argparse.Namespace) -> int:
         "base_url": args.base_url,
         "model": args.model,
         "postprocess_model": args.postprocess_model,
+        "max_pages": args.max_pages,
     }
     config = build_config(file_values, cli_values)
     order_file = _check_paths(args)
+    if not args.dry_run:
+        require_api_key(config)
+
+    inventory = build_inventory(args.input, order_file, config.max_pages)
+    if inventory.unlisted:
+        shown = ", ".join(inventory.unlisted[:10]) + (" ..." if len(inventory.unlisted) > 10 else "")
+        print(
+            f"vllm-doc: warning: {len(inventory.unlisted)} image file(s) not in the order file are ignored: {shown}",
+            file=sys.stderr,
+        )
 
     if args.dry_run:
         key_set = api_key(config) is not None
@@ -89,11 +102,13 @@ def run_process(args: argparse.Namespace) -> int:
             "effective_postprocess_model": config.effective_postprocess_model,
             "api_key_env": config.api_key_env,
             "api_key_set": key_set,
+            "listed_scans": inventory.total_listed,
+            "selected_scans": len(inventory.scans),
+            "unlisted_images": inventory.unlisted,
         }
         print(json.dumps(summary, indent=2))
         return 0
 
-    require_api_key(config)
     print("vllm-doc: error: processing is not implemented yet; use --dry-run", file=sys.stderr)
     return EXIT_RUNTIME
 
