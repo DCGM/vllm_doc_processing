@@ -10,7 +10,7 @@ from vllm_doc_processing.images import build_inventory
 from vllm_doc_processing.llm import LLMClient
 from vllm_doc_processing.models import PageType
 from vllm_doc_processing.observe import observe_scan
-from vllm_doc_processing.prompts import OBSERVE_SYSTEM, PAGE_TYPE_DESCRIPTIONS, PROMPT_VERSIONS, observe_user_prompt
+from vllm_doc_processing.prompts import OBSERVE_PROMPT_NUMBER, OBSERVE_SYSTEM, PAGE_TYPE_DESCRIPTIONS, PROMPT_VERSIONS, observe_user_prompt
 
 SPREAD = {
     "page_type": "TableOfContents",
@@ -59,7 +59,7 @@ def test_prompt_covers_vocabulary_and_separates_scan_position():
     user = observe_user_prompt(4, 120, "Last page number: 7")
     assert "Scan position: 5 of 120" in user and "not a page number" in user and "Last page number: 7" in user
     assert "Context" not in observe_user_prompt(0, 1)
-    assert PROMPT_VERSIONS["observe"].startswith("1-")
+    assert PROMPT_VERSIONS["observe"].startswith(f"{OBSERVE_PROMPT_NUMBER}-")
 
 
 def test_observe_scan_sends_one_image_and_validates_spread(book):

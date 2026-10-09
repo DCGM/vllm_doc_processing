@@ -32,7 +32,7 @@ PAGE_TYPE_DESCRIPTIONS: dict[PageType, str] = {
     PageType.ADVERTISEMENT: "advertisement, e.g. publisher's list of other books",
     PageType.ILLUSTRATION: "page dominated by a picture or plate (not a map)",
     PageType.FRONTISPIECE: "illustration facing (preceding) the title page",
-    PageType.MAP: "page dominated by a map",
+    PageType.MAP: "page or fold-out dominated by a map",
     PageType.TABLE: "page dominated by a table",
     PageType.SHEET_MUSIC: "musical notation",
     PageType.BLANK: "page with no printed content (show-through from the other side, stamps or "
@@ -57,7 +57,7 @@ PAGE_TYPE_DESCRIPTIONS: dict[PageType, str] = {
     PageType.CALIBRATION_TABLE: "colour/scale calibration target only, without book content",
 }
 
-OBSERVE_PROMPT_NUMBER = 1
+OBSERVE_PROMPT_NUMBER = 3
 """Bump on any intended change of the observation prompt."""
 
 OBSERVE_SYSTEM = """\
@@ -87,8 +87,10 @@ fields except `notes`.
 right edge; the page number is in the left corner.
 - "right": one page that is the right (recto) page of an opening. Clues: the gutter is on its left \
 edge; the page number is in the right corner.
-- "both": two facing pages in one image.
-- null: covers, spine, edge, loose sheets, or when the side cannot be determined.
+- "both": two separate facing pages side by side in one image, with the gutter (fold) between them. \
+Text columns or several language versions on one sheet are one page. A single wide sheet (fold-out \
+map or plate, landscape table), a cover or a jacket is never "both". If in doubt, it is not "both".
+- null: covers, spine, edge, fold-outs, loose sheets, or when the side cannot be determined.
 
 # page_type
 One label for the whole image, from this vocabulary:
@@ -100,21 +102,27 @@ Leave `subpages` empty unless side is "both". Use null only if the image is unre
 # printed_numbers
 Page numbers printed on the page(s), usually in a top or bottom corner or centred in the header or \
 footer. One entry per page that shows a number; a spread may have two.
-- Not page numbers: chapter or section numbers, footnote markers, printer's signature marks (e.g. \
-"A2", "3*", or a small number with a short title at the bottom of the page), years, numbers in the \
-text or in tables, plate or figure numbers.
+- Not page numbers:
+  - printer's signature marks at the bottom of the page: letters or letter-number groups ("A", "B ij", \
+"C3"), numbers with an asterisk ("1*", "3*"), or a small number next to a short title;
+  - catchwords (a single word at the bottom right that repeats the first word of the next page);
+  - page references inside table-of-contents, index or list entries: they point to other pages;
+  - chapter, section, footnote, plate, figure or table numbers ("Tab. 3", "Suppl. 3", "Fig. 2"), years \
+and numbers in the text.
 - `raw`: exactly as printed, including brackets or dashes ("[12]", "- 7 -", "xii").
 - `normalized`: arabic digits without decoration ("12"), roman numerals in upper case ("XII").
 - `numeric_value`: the integer value (also for roman numerals), or null.
 - `numeral_system`: "arabic", "roman" or "other".
 - `side`: the page that carries the number ("left"/"right"); null for a single page whose side is unknown.
-- If a number is present but illegible, do not report it; mention it in `notes`.
+- If a number is present but illegible, or you are not sure that a mark is a page number, do not \
+report it; mention it in `notes`.
 - Empty list if no page number is printed.
 
 # headings
 Headings that start a part, chapter or section on this scan, as printed (include its number or \
 label, e.g. "KAPITOLA II. Na horách"). Not running headers repeated at the top of every page, not \
-the book title on a title page, not headings in a table of contents. `level`: 1 for the top level \
+the book title on a title page, not the title of a contents or index page itself ("Obsah", \
+"Contents"), not group captions inside a table of contents. `level`: 1 for the top level \
 (part or chapter), 2 for a section inside it, and so on; null if unclear. `side`: the page of a \
 spread it is on, else null.
 
@@ -127,7 +135,8 @@ null if none; `level` from indentation or typography (1 = top). Do not list inde
 Only from pages that present the book itself: title page, half-title, cover, spine, imprint/colophon, \
 series page. Never from the main text, advertisements of other books, bibliographies or indexes.
 One entry per value; one entry per person. Values as printed, without role phrases ("by", "napsal", \
-"übersetzt von", "illustrations by"). Fields:
+"übersetzt von", "illustrations by"). Report persons only in the role the page gives them (e.g. a \
+by-line for the author); dedicatees, addressees and persons in the title are not authors. Fields:
 - title, subtitle; part_name and part_number (of a multi-volume work, e.g. "Díl II.");
 - series_name, series_number (e.g. "Svazek 12");
 - edition (e.g. "Druhé vydání");
