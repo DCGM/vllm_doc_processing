@@ -44,7 +44,7 @@ def test_spread_keeps_two_printed_numbers():
 
 def test_bibliography_fields_match_biblio_vocabulary():
     assert set(Bibliography.model_fields) == {f.value for f in BiblioField}
-    assert len(PageType) == 38 and PageType("TableOfContents") is PageType.TABLE_OF_CONTENTS
+    assert len(PageType) == 37 and PageType("tableOfContents") is PageType.TABLE_OF_CONTENTS
 
 
 def test_unknown_scan_reference_rejected():
@@ -114,4 +114,4 @@ def test_unknowns_stay_null():
         {"book_id": "b", "source": {"scan_count": 1}, "scans": [{"scan_id": sid(1), "scan_index": 0, "filename": "a.jpg"}]}
     )
     assert book.scans[0].observation is None and book.resolved is None
-    assert book.schema_version == "0.1"
+    assert book.schema_version == "0.2"

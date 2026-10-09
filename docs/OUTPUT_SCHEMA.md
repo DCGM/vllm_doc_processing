@@ -1,4 +1,4 @@
-# Annotated-book JSON schema (`schema_version` 0.1)
+# Annotated-book JSON schema (`schema_version` 0.2)
 
 **Source of truth:** `src/vllm_doc_processing/models.py` (Pydantic). Full example: [`examples/annotated_book.example.json`](../examples/annotated_book.example.json). Machine-readable JSON Schema: `AnnotatedBook.model_json_schema()`.
 
@@ -13,7 +13,7 @@ One run processes **one book** from one directory of **ordered scans** and write
 
 ```text
 AnnotatedBook
-├─ schema_version: "0.1"   book_id   source {input_directory?, order_file?, scan_count}
+├─ schema_version: "0.2"   book_id   source {input_directory?, order_file?, scan_count}
 ├─ scans[]: ScanRecord {scan_id, scan_index, filename, image_sha256?, width?, height?,
 │            observation: ScanObservation?, observation_call_id?}
 ├─ resolved: ResolvedBook? {bibliography, scans[]: ResolvedScan, structure[]: StructureNode,
@@ -31,10 +31,12 @@ AnnotatedBook
 
 | Field | Type | Notes |
 |---|---|---|
-| `page_type`, `page_type_confidence` | `PageType?`, `float?` | Whole-image label (comparable with MetaKat's per-image label). |
+| `page_type`, `page_type_confidence`, `page_type_reason` | `PageType?`, `float?`, `str?` | Whole-image label from the NDK vocabulary (below); `page_type_reason` = the visible evidence in a few words. |
 | `side`, `side_confidence` | `left \| right \| both`?, `float?` | `both` = two-page spread in one image; unknown/not applicable (cover, spine) = `null`. |
+| `side_reason` | `str?` | Visible evidence for the side. |
+| `leaf`, `leaf_reason` | `book_block \| plate \| binding \| loose`?, `str?` | Physical kind of the sheet: part of the book block, an inserted plate (different paper, printed on one side, tipped in), binding (covers, pastedowns, endpapers, jacket) or a loose sheet. Plates, binding and loose sheets are outside the page count (NDK §1.1.4). |
 | `subpages[]` | `{side: left\|right, page_type?, confidence?}` | Optional per-page types; only allowed when `side = both`, distinct sides. |
-| `printed_numbers[]` | `PrintedNumber` | `side: left\|right\|null` (never `both`), `raw` exactly as printed (`[12]`, `xii`), `normalized`, `numeric_value`, `numeral_system: arabic\|roman\|other\|null`, `confidence`, `notes`. A spread holds two independent observations. Empty list = no number seen, which is *not* evidence of a missing scan. |
+| `printed_numbers[]` | `PrintedNumber` | `side: left\|right\|null` (never `both`), `raw` exactly as printed (`[12]`, `xii`), `normalized`, `numeric_value`, `numeral_system: arabic\|roman\|other\|null`, `position: top_left\|top_center\|top_right\|bottom_left\|bottom_center\|bottom_right\|other\|null`, `confidence`, `notes`. A spread holds two independent observations. Empty list = no number seen, which is *not* evidence of a missing scan. |
 | `headings[]` | `{text, level?, side?, confidence?}` | Chapter/section headings visible on the scan. |
 | `toc_entries[]` | `{title, printed_page_reference?, level?, confidence?}` | Short TOC evidence; target page as printed. |
 | `bibliographic_candidates[]` | `{field: BiblioField, value, confidence?, notes?}` | Candidates as printed; competing candidates are all kept. |
@@ -56,8 +58,8 @@ Every resolved assertion is a `Claim`:
 |---|---|---|---|
 | printed number in sequence | `12`, `XII` (canonical roman, upper case) | observed | 12 |
 | printed number wrong inside an intact sequence (§1.1.2) | the correct number, `notes: "printed '31'"`, warning `page_number_conflict` | inferred | correct value |
-| counted page without printed number (§1.1.4 "chybí v číselné řadě") | `[13]`; at the start `[1]`, `[2]`, … | inferred | 13 |
-| page outside the count: binding parts, jacket, loose leaves, frontispiece, inserted plates (§1.1.4 "nechybí v číselné řadě") | `[1a]`, `[1b]` before page 1 (`[Ia]` before roman front matter); `[26a]`, `[26b]` after page 26 | inferred | `null` |
+| counted page without printed number (§1.1.4 "chybí v číselné řadě") | `[13]`; at the start `[1]`, `[2]`, …; at the end `[70]`, `[71]`, … (binding parts included) | inferred | 13 |
+| page outside the count: binding parts, jacket, loose leaves, frontispiece, inserted plates (§1.1.4 "nechybí v číselné řadě"); after the last printed number all pages are counted instead (§1.1.4 c) | `[1a]`, `[1b]` before page 1 (`[Ia]` before roman front matter); `[26a]`, `[26b]` after page 26 | inferred | `null` |
 | spread (§1.1.6) | `page_number` `5,6`, `[4],5` | | |
 | several or non-numeric printed numbers on one page | as observed | observed | as observed |
 
@@ -70,7 +72,7 @@ NDK practice brackets every number that is not printed (the rules allow omitting
 `CallRecord` is one request **attempt**: `call_id`, `stage: observe|reconcile|escalate|revisit`, `scan_id?`, `provider`, `model`, `attempt` (retries > 1), `status: ok|invalid_response|error`, `started_at`, `latency_s`, `prompt_tokens`, `completion_tokens`, `cost_usd` (as reported; `null` if not — OpenRouter reports cost, OpenAI does not), `response_id` (provider response/generation ID), `served_model` (model name in the response, e.g. a dated snapshot), `upstream_provider` (serving provider behind OpenRouter), `error` (redacted, truncated; never contains prompts, images or keys). `prompt_versions` holds `observe` (observation prompt), `context` (format of the earlier-scan context, `context.CONTEXT_VERSION`) and, after reconciliation, `reconcile` (reconciliation prompt and input format). `totals` must equal `UsageTotals.from_calls(calls)` (call `run.refresh_totals()` after adding calls); `cost_complete: false` means some calls lacked a reported cost. `parameters` must never contain secrets.
 
 ## Validated invariants
-- `schema_version` is `"0.1"`; `source.scan_count == len(scans)`.
+- `schema_version` is `"0.2"`; `source.scan_count == len(scans)`.
 - `scans` in order-file order, `scan_index` contiguous from 0; `scan_id`, `filename`, `call_id` unique.
 - Every scan ID referenced anywhere (`resolved.*`, `run.calls[].scan_id`) exists.
 - If `resolved` is present, `resolved.scans` lists every input scan exactly once, in scan order.
@@ -87,7 +89,7 @@ Reference: [base_objects.py](https://github.com/DCGM/MetaKat/blob/main/metakat/s
 
 | MetaKat | This schema |
 |---|---|
-| `PageType` (38 values) | `PageType`, identical strings. Unknown is `null`, not `NormalPage`. |
+| `PageType` (38 values, PascalCase) | `PageType`: the 37 NDK page types written as in NDK (lowerCamelCase), see below. Unknown is `null`, not `normalPage`. |
 | `PageSideType` `left\|right\|single_page` | `ScanSide` `left\|right\|both\|null`. MetaKat `single_page` has no direct equivalent (a single non-facing leaf is `left`/`right` or `null`); `both` (spread) has no MetaKat value. Needs explicit handling in evaluation (#10). |
 | `MetakatPage.pageIndex` / `batch_index` | `scan_index` |
 | `MetakatPage.pageNumber` | `resolved.scans[].page_number` (NDK label of the scan, e.g. `[1a]`, `5,6`); per page in `page_labels[]`; observed numbers in `printed_numbers[]`. |
@@ -96,5 +98,20 @@ Reference: [base_objects.py](https://github.com/DCGM/MetaKat/blob/main/metakat/s
 | `imageDim` | `width`, `height` |
 | Bounding boxes, ALTO, detections | Out of scope. |
 
+## Page types
+`PageType` is the NDK page-type vocabulary of [Pravidla pro popis monografií 2.4](https://standardy.ndk.cz/ndk/standardy-digitalizace/ppp_mono_2.4_final.pdf/at_download/file), table 1.2.2 (the values used in NDK METS `TYPE` and MODS `genre type`): `frontJacket`, `cover`, `frontCover`, `backCover`, `frontEndSheet`, `backEndSheet`, `frontEndPaper`, `backEndPaper`, `titlePage`, `preface`, `introduction`, `normalPage`, `blank`, `illustration`, `map`, `table`, `advertisement`, `impressum`, `colophon`, `frontispiece`, `imprimatur`, `dedication`, `errata`, `sheetMusic`, `appendix`, `bibliography`, `afterword`, `conclusion`, `tableOfContents`, `index`, `listOfIllustrations`, `listOfMaps`, `listOfTables`, `edge`, `spine`, `jacket`, `flyleaf`. Definitions (our English summary of §1.2.1) are in `prompts.PAGE_TYPE_DESCRIPTIONS`.
+
+Mapping to MetaKat's `PageType` for evaluation (#10). Kramerius data mixes both spellings, so compare case-insensitively:
+
+| MetaKat | NDK (this schema) |
+|---|---|
+| same name in PascalCase (`TitlePage`, `FrontEndSheet`, …) | same name in lowerCamelCase (`titlePage`, `frontEndSheet`, …) |
+| `FlyLeaf` | `flyleaf` (NDK: a loose leaf, not a blank protective leaf) |
+| `Abstract`, `Obituary` | no page type (NDK uses them only for chapters); usually `normalPage` |
+| `CalibrationTable`, `CustomInclude`, `FragmentsOfBookbinding` | no NDK page type; closest `flyleaf` (loose inserts) or exclude from scoring |
+| — | `colophon` (closest MetaKat `Impressum`), `introduction`, `afterword`, `conclusion` (closest `NormalPage`/`Preface`) |
+
 ## Versioning
 Breaking changes bump `schema_version` and are listed here with a migration note.
+
+- **0.2** (#21): `PageType` values switched from MetaKat's vocabulary to NDK's (renamed to lowerCamelCase, `FlyLeaf` → `flyleaf`; `Abstract`, `Obituary`, `CalibrationTable`, `CustomInclude`, `FragmentsOfBookbinding` removed; `colophon`, `introduction`, `afterword`, `conclusion` added). Added `ScanObservation.page_type_reason`, `side_reason`, `leaf`, `leaf_reason` and `PrintedNumber.position`. Migration of 0.1 files: rename page types per the table above (removed types → `null`) and set `schema_version` to `"0.2"`; no 0.1 results were published.

@@ -6,12 +6,12 @@ Every page of every scan gets a label derived from the printed numbers observed 
 * printed number that disagrees with both agreeing neighbours: replaced by the correct number
   (rule 1.1.2), flagged ``page_number_conflict``;
 * counted page without a printed number: computed number in brackets (``[1]``, ``[13]``, ``[259]``);
-* page outside the count (binding parts, inserted plates, extra leaves): the preceding number with a
+* page outside the count (binding parts, inserted plates, loose leaves): the preceding number with a
   letter, in brackets (``[1a]`` before page 1, ``[26a]``, ``[26b]`` after page 26) (rule 1.1.4);
 * a spread is labelled ``5,6`` / ``[4],5`` (rule 1.1.6) at scan level (``ResolvedScan.page_number``).
 
 Which unnumbered pages are counted is decided from the arithmetic between printed numbers, the page
-types (binding parts and inserts in ``UNCOUNTED_TYPES`` are never counted) and the side parity of the
+types and observed leaf kinds (``UNCOUNTED_TYPES``, ``UNCOUNTED_LEAVES``: never counted) and the side parity of the
 book (odd numbers on the right, unless the observed numbers say otherwise). If printed numbers jump
 by more than the pages in between (scans missing or a number misread), the pages between stay
 unlabelled. NDK practice brackets every number that is not printed; this module does the same.
@@ -37,14 +37,14 @@ UNCOUNTED_TYPES = frozenset(
         PageType.BACK_END_SHEET,
         PageType.FRONT_END_PAPER,
         PageType.BACK_END_PAPER,
-        PageType.CALIBRATION_TABLE,
-        PageType.FRAGMENTS_OF_BOOKBINDING,
-        PageType.FLY_LEAF,
-        PageType.CUSTOM_INCLUDE,
+        PageType.FLYLEAF,
         PageType.FRONTISPIECE,
     }
 )
-"""Never part of the page count: binding, jacket, loose leaves, inserts and the frontispiece (NDK 1.2.1)."""
+"""Never part of the page count: binding, jacket, loose leaves and the frontispiece (NDK 1.2.1)."""
+
+UNCOUNTED_LEAVES = frozenset({"plate", "binding", "loose"})
+"""Observed ``leaf`` kinds outside the page count: inserted plates, binding parts, loose sheets (NDK 1.1.4)."""
 
 UNCOUNTED_COST = 10
 PARITY_COST = 1
@@ -57,6 +57,7 @@ class _Page:
     side: LeafSide | None
     page_type: PageType | None
     numbers: list[PrintedNumber]
+    leaf: str | None = None
     kind: str = "free"  # printed | corrected | counted | lettered | observed | free (unresolved)
     value: int | None = None
     system: str | None = None
@@ -131,16 +132,12 @@ def paginate(
             b.kind, b.note, b.sources = "corrected", f"printed {b.numbers[0].raw!r}", [a.scan, b.scan, c.scan]
             b.value = expected
 
-    if not anchors:  # unnumbered volume: count from 1, letter binding parts and inserts (NDK 1.1.4 d)
-        value = 0
-        for p in pages:
-            if p.kind != "free":
-                continue
-            if p.page_type in UNCOUNTED_TYPES:
-                p.kind = "lettered"
-            else:
-                value += 1
-                p.kind, p.value, p.system = "counted", value, "arabic"
+    if not anchors:  # unnumbered volume: count from 1 (NDK 1.1.4 d); leading binding parts are lettered
+        free = [p for p in pages if p.kind == "free"]
+        start = next((i for i, p in enumerate(free) if not _uncounted(p)), len(free))
+        for p in free[:start]:
+            p.kind = "lettered"
+        _count_forward(free[start:], 0, "arabic", [])
     else:
         first = anchors[0]
         _count_back([p for p in pages[: first.k] if p.kind == "free"], first.value, first.system, [first.scan])
@@ -178,6 +175,10 @@ def paginate(
     return result
 
 
+def _uncounted(p: _Page) -> bool:
+    return p.page_type in UNCOUNTED_TYPES or p.leaf in UNCOUNTED_LEAVES
+
+
 def _odd_side(scans: Sequence[ScanRecord]) -> LeafSide:
     """Side carrying odd page numbers, by majority of observed numbers with a known side (default right)."""
     votes = 0
@@ -194,16 +195,18 @@ def _pages(scans, types, sides, subtypes, odd_side: LeafSide) -> list[_Page]:
     pages: list[_Page] = []
     for s, page_type, side, sub in zip(scans, types, sides, subtypes, strict=True):
         numbers = list(s.observation.printed_numbers) if s.observation else []
+        leaf = s.observation.leaf if s.observation else None
         if side != "both":
-            pages.append(_Page(len(pages), s.scan_index, side if side in ("left", "right") else None, page_type, numbers))
+            side = side if side in ("left", "right") else None
+            pages.append(_Page(len(pages), s.scan_index, side, page_type, numbers, leaf))
             continue
-        for leaf in ("left", "right"):
-            mine = [n for n in numbers if (n.side or _leaf_by_parity(n, odd_side)) == leaf]
-            pages.append(_Page(len(pages), s.scan_index, leaf, sub.get(leaf) or page_type, mine))
+        for page_side in ("left", "right"):
+            mine = [n for n in numbers if (n.side or _side_by_parity(n, odd_side)) == page_side]
+            pages.append(_Page(len(pages), s.scan_index, page_side, sub.get(page_side) or page_type, mine, leaf))
     return pages
 
 
-def _leaf_by_parity(n: PrintedNumber, odd_side: LeafSide) -> LeafSide:
+def _side_by_parity(n: PrintedNumber, odd_side: LeafSide) -> LeafSide:
     if n.numeric_value is None:
         return "left"
     even_side: LeafSide = "left" if odd_side == "right" else "right"
@@ -213,7 +216,7 @@ def _leaf_by_parity(n: PrintedNumber, odd_side: LeafSide) -> LeafSide:
 def _count_back(free: list[_Page], value: int, system: str, sources: list[int]) -> None:
     """Pages before a printed ``value`` (book start, or a new sequence): the last countable pages get
     ``[value-1]``, ``[value-2]``... down to 1; the others are lettered (NDK 1.1.4)."""
-    countable = [p for p in free if p.page_type not in UNCOUNTED_TYPES]
+    countable = [p for p in free if not _uncounted(p)]
     n = min(value - 1, len(countable))
     for i, p in enumerate(countable[len(countable) - n :] if n else []):
         p.kind, p.value, p.system, p.sources = "counted", value - n + i, system, sources
@@ -223,26 +226,22 @@ def _count_back(free: list[_Page], value: int, system: str, sources: list[int]) 
 
 
 def _count_forward(free: list[_Page], value: int, system: str, sources: list[int]) -> None:
-    """Pages after the last printed ``value``: counted until the first binding part or insert, then lettered."""
-    stopped = False
+    """Pages after the last printed ``value`` continue the count in brackets, binding parts included
+    (NDK 1.1.4 c: ``256, 257, 258, [259], [260], [261]``)."""
     for p in free:
-        stopped = stopped or p.page_type in UNCOUNTED_TYPES
-        if stopped:
-            p.kind, p.sources = "lettered", sources
-        else:
-            value += 1
-            p.kind, p.value, p.system, p.sources = "counted", value, system, sources
+        value += 1
+        p.kind, p.value, p.system, p.sources = "counted", value, system, sources
 
 
 def _fill_between(free: list[_Page], a: int, b: int, system: str, odd_side: LeafSide, sources: list[int]) -> None:
     """Assign ``a+1 .. b-1`` to some of the unnumbered pages between printed ``a`` and ``b`` and letter the
-    rest, at minimum cost: counting a binding part/insert costs ``UNCOUNTED_COST``, a number on the wrong
+    rest, at minimum cost: counting a binding part, insert or plate costs ``UNCOUNTED_COST``, a number on the wrong
     side ``PARITY_COST``. Ties put lettered pages first (``16, [16a], [16b], [17], 18``)."""
     n, m = len(free), b - a - 1
 
     def cost(p: _Page, value: int) -> int:
         expected = odd_side if value % 2 else ("left" if odd_side == "right" else "right")
-        return UNCOUNTED_COST * (p.page_type in UNCOUNTED_TYPES) + PARITY_COST * (p.side not in (None, expected))
+        return UNCOUNTED_COST * (_uncounted(p)) + PARITY_COST * (p.side not in (None, expected))
 
     # best[i][r]: minimal cost of pages i.. with the last r numbers (b-r .. b-1) still to assign
     inf = float("inf")

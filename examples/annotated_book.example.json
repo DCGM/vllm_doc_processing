@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.1",
+  "schema_version": "0.2",
   "book_id": "example-book",
   "source": {"input_directory": null, "order_file": "order.txt", "scan_count": 5},
   "scans": [
@@ -11,7 +11,7 @@
       "width": 2480,
       "height": 3508,
       "observation": {
-        "page_type": "FrontCover",
+        "page_type": "frontCover",
         "page_type_confidence": 0.95,
         "side": null,
         "bibliographic_candidates": [
@@ -29,10 +29,13 @@
       "width": 2480,
       "height": 3508,
       "observation": {
-        "page_type": "TitlePage",
+        "page_type": "titlePage",
         "page_type_confidence": 0.97,
+        "page_type_reason": "full title, author and publisher, large type",
         "side": "right",
         "side_confidence": 0.7,
+        "side_reason": "gutter shadow on the left edge",
+        "leaf": "book_block",
         "bibliographic_candidates": [
           {"field": "author", "value": "Jan Žlutický", "confidence": 0.95},
           {"field": "title", "value": "Cesty po Šumavě", "confidence": 0.95},
@@ -53,7 +56,7 @@
       "width": 2480,
       "height": 3508,
       "observation": {
-        "page_type": "Impressum",
+        "page_type": "colophon",
         "side": "left",
         "bibliographic_candidates": [
           {"field": "manufacture_publisher", "value": "TISKÁRNA VZOR", "confidence": 0.8},
@@ -72,12 +75,12 @@
       "width": 4960,
       "height": 3508,
       "observation": {
-        "page_type": "TableOfContents",
+        "page_type": "tableOfContents",
         "side": "both",
         "side_confidence": 0.95,
         "subpages": [
-          {"side": "left", "page_type": "TableOfContents"},
-          {"side": "right", "page_type": "Preface"}
+          {"side": "left", "page_type": "tableOfContents"},
+          {"side": "right", "page_type": "preface"}
         ],
         "printed_numbers": [
           {"side": "left", "raw": "v", "normalized": "V", "numeric_value": 5, "numeral_system": "roman", "confidence": 0.8},
@@ -104,7 +107,7 @@
       "width": 4960,
       "height": 3508,
       "observation": {
-        "page_type": "NormalPage",
+        "page_type": "normalPage",
         "side": "both",
         "printed_numbers": [
           {"side": "left", "raw": "1", "normalized": "1", "numeric_value": 1, "numeral_system": "arabic", "confidence": 0.9},
@@ -133,31 +136,31 @@
     "scans": [
       {
         "scan_id": "5b1f0c2e-7d4a-4e8b-9c3f-000000000001",
-        "page_type": {"value": "FrontCover", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000001"]},
+        "page_type": {"value": "frontCover", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000001"]},
         "page_labels": [{"label": "[Ia]", "origin": "inferred", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"]}],
         "page_number": "[Ia]"
       },
       {
         "scan_id": "5b1f0c2e-7d4a-4e8b-9c3f-000000000002",
-        "page_type": {"value": "TitlePage", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000002"]},
+        "page_type": {"value": "titlePage", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000002"]},
         "side": {"value": "right", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000002"]},
         "page_labels": [{"label": "[III]", "numeric_value": 3, "numeral_system": "roman", "origin": "inferred", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"]}],
         "page_number": "[III]"
       },
       {
         "scan_id": "5b1f0c2e-7d4a-4e8b-9c3f-000000000003",
-        "page_type": {"value": "Impressum", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000003"]},
+        "page_type": {"value": "colophon", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000003"]},
         "side": {"value": "left", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000003"]},
         "page_labels": [{"label": "[IV]", "numeric_value": 4, "numeral_system": "roman", "origin": "inferred", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"]}],
         "page_number": "[IV]"
       },
       {
         "scan_id": "5b1f0c2e-7d4a-4e8b-9c3f-000000000004",
-        "page_type": {"value": "TableOfContents", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"]},
+        "page_type": {"value": "tableOfContents", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"]},
         "side": {"value": "both", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"]},
         "subpages": [
-          {"side": "left", "page_type": {"value": "TableOfContents", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"]}},
-          {"side": "right", "page_type": {"value": "Preface", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"]}}
+          {"side": "left", "page_type": {"value": "tableOfContents", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"]}},
+          {"side": "right", "page_type": {"value": "preface", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"]}}
         ],
         "page_labels": [
           {"side": "left", "label": "V", "numeric_value": 5, "numeral_system": "roman", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"]},
@@ -167,7 +170,7 @@
       },
       {
         "scan_id": "5b1f0c2e-7d4a-4e8b-9c3f-000000000005",
-        "page_type": {"value": "NormalPage", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000005"]},
+        "page_type": {"value": "normalPage", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000005"]},
         "side": {"value": "both", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000005"]},
         "page_labels": [
           {"side": "left", "label": "1", "numeric_value": 1, "numeral_system": "arabic", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000005"]},

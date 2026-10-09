@@ -15,14 +15,15 @@ Annotate the attached scan.
 The response must be a `ScanObservation` (docs/OUTPUT_SCHEMA.md). The system prompt:
 - asks for observations **of this image only**, short quoted evidence instead of OCR, exact original spelling, and `null`/empty lists instead of guesses;
 - states that the scan position is not a printed page number and that context may be wrong and must not be copied into the observation;
-- defines `side` (`left`/`right`/`both`/`null`, with gutter and page-number-corner clues);
-- lists all 38 MetaKat page types with one-line definitions (`PAGE_TYPE_DESCRIPTIONS`); for spreads the more specific type is the image label and each page gets a `subpages` entry;
-- defines printed page numbers (raw as printed, normalized, numeric value, numeral system, side) and what is *not* a page number (signature marks, chapter/footnote/plate numbers, years); illegible numbers go to `notes`;
+- defines `side` (`left`/`right`/`both`/`null`, with gutter and page-number-corner clues) and asks for a short `side_reason`;
+- lists the 37 NDK page types with one-line definitions after PPM 2.4 §1.2.1 (`PAGE_TYPE_DESCRIPTIONS`) and the NDK priorities for pages with two roles (titlePage > tableOfContents, cover > tableOfContents > end sheet > map, any specific type > flyleaf); asks for a short `page_type_reason`; for spreads the more specific type is the image label and each page gets a `subpages` entry;
+- asks for the physical `leaf` kind (`book_block`, `plate`, `binding`, `loose`) with a short `leaf_reason`: whether the sheet belongs to the page count is what NDK numbering depends on (§1.1.4), and an inserted plate is often visible as different paper, one-sided print or a tissue guard;
+- defines printed page numbers (raw as printed, normalized, numeric value, numeral system, side, position on the page) and what is *not* a page number (signature marks, chapter/footnote/plate numbers, years); illegible numbers go to `notes`;
 - restricts `headings` to headings starting on the scan (no running headers), `toc_entries` to TOC pages, and `bibliographic_candidates` to pages presenting the book itself (title page, cover, imprint, series page), one value per entry, without role phrases, keeping competing forms.
 
 Invalid answers — bad JSON, schema mismatch or violated invariants such as `subpages` on a single page — are recorded as `invalid_response` calls and retried by the adapter; after `max_retries` the scan fails with an error carrying all attempts.
 
-The page-type definitions are our own reading of the MetaKat/Czech NDK vocabulary (MetaKat publishes only the labels). In particular `FrontEndSheet`/`BackEndSheet` = pastedown (přídeští) and `FrontEndPaper`/`BackEndPaper` = free endpaper leaf, and half-title pages are labelled `TitlePage`; check these against the MetaKat ground truth during benchmarking (#10).
+Since prompt version 4 (#21) the page types and their definitions follow NDK ([Pravidla pro popis monografií 2.4](https://standardy.ndk.cz/ndk/standardy-digitalizace/ppp_mono_2.4_final.pdf/at_download/file), §1.2): `frontEndSheet`/`backEndSheet` = inside of the board or wrapper (přídeští), `frontEndPaper`/`backEndPaper` = free endpaper (předsádka), `flyleaf` = loose leaf (volný list, *not* a blank protective leaf as in prompt v1–3), `impressum` = copyright/ISBN imprint, `colophon` = tiráž; half-titles are `titlePage`. The reasons, confidences and leaf kind are passed to the reconciliation; the bounded context of #6 does not use them. The manual check below was run with prompt v1–3 and the old MetaKat names.
 
 Use `vllm-doc observe` (README) to try the prompt on selected scans.
 
@@ -55,21 +56,21 @@ The observation system prompt already tells the model that the context is automa
 
 | Step | Done by |
 |---|---|
-| Page type and side per scan | observed values, unless the LLM lists a `scan_corrections` entry for a clearly wrong one (judged from neighbouring scans, numbering and content, using the PPM 1.2 conventions in the prompt: order of binding parts, `FlyLeaf` = loose leaf, priorities such as TitlePage before TableOfContents, alternating sides with odd numbers on the right). A correction becomes `origin: inferred` with the reason in `notes` and a `changes[]` entry; corrections of unknown or unobserved scans are ignored with a warning. |
+| Page type and side per scan | observed values, unless the LLM lists a `scan_corrections` entry for a clearly wrong one (judged from neighbouring scans, numbering and content, using the PPM 1.2 conventions in the prompt: order of binding parts, `flyleaf` = loose leaf, priorities such as titlePage before tableOfContents; the observer's confidences, reasons and leaf kinds are in the input, alternating sides with odd numbers on the right). A correction becomes `origin: inferred` with the reason in `notes` and a `changes[]` entry; corrections of unknown or unobserved scans are ignored with a warning. |
 | Page labels (NDK notation, see OUTPUT_SCHEMA) | code (`pagination.py`), from the printed numbers and the *corrected* page types and sides, see below |
 | Bibliography: choose, merge and deduplicate forms | LLM; then each value must equal an observed candidate of any field (ignoring case, spacing and trailing punctuation) or be a variant of an observed candidate of the same field (every word found in it, allowing initials and Czech inflected endings: `Praha` ~ `V Praze`, `Karel` ~ `K.`), else it is dropped (`ungrounded_value`); the cited `source_scans` alone do not ground a value, the sources are the scans holding the matching candidates. Values not observed literally in that field get `origin: inferred` and a `changes[]` entry. A second value for a single-valued field is dropped (`competing_values`). |
 | Chapter list: TOC entry ↔ heading matching, titles, levels | LLM; only TOC entries and headings on the cited scans whose text matches the title (one contains the other's words, same tolerance as above) count — otherwise the citation is ignored (`unmatched_toc_entry`, `unmatched_heading`); the page reference must be printed in a matching TOC entry (`ungrounded_reference`); every word of the title must occur in the matching entries/headings (`ungrounded_title`); chapters with no matching entry or heading are dropped (`ungrounded_chapter`). |
 | Hierarchy, start and end scans | code: parent = previous chapter of a lower level; start = heading scan, else the unique scan whose page label (printed or computed) equals the TOC page reference; none → `unresolved_toc_reference` (start stays `null`), several → `ambiguous_toc_reference`, heading and TOC disagree → `toc_heading_mismatch` (heading wins). End = scan before the next chapter of the same or higher level (that scan itself if it is a spread), `null` when unknown or for the last chapter. Starts going backwards → `contradictory_order`. |
 | Other doubts | LLM `issues` → warnings with `detected_by: llm` |
 
-**Page labels** (`pagination.paginate`, PPM §1.1). Every page (a spread is two pages) is classified from the printed numbers:
+**Page labels** (`pagination.paginate`, PPM §1.1). Every page (a spread is two pages) is classified from the printed numbers. A page is *uncounted* if its (corrected) type is a binding part, jacket, `flyleaf` or `frontispiece` (`UNCOUNTED_TYPES`) or its observed `leaf` is `plate`, `binding` or `loose` (`UNCOUNTED_LEAVES`):
 1. A page with exactly one printed arabic/roman number is an *anchor*. An anchor disagreeing with both neighbours that agree with each other is a misprint or misreading inside an intact sequence: it is labelled with the correct number (§1.1.2) and flagged `page_number_conflict`.
-2. Before the first anchor (value *v*), the last *v*−1 countable pages get `[1]` … `[v-1]`; earlier pages and binding parts are lettered `[1a]`, `[1b]`, … (§1.1.4). With no printed numbers at all, countable pages are `[1]`, `[2]`, … (§1.1.4 d).
-3. Between anchors *a* and *b* of the same system, the *b*−*a*−1 missing numbers are given to some of the unnumbered pages and the rest are lettered after the preceding number (`[16a]`). The choice minimizes a cost: counting a binding part, jacket, loose leaf, frontispiece or calibration target (`UNCOUNTED_TYPES`) costs 10, a number on the wrong side costs 1 (odd numbers on the side that the observed numbers mostly show, by default right). Ties put lettered pages first (`16, [16a], [16b], [17], 18`, the first PPM variant).
+2. Before the first anchor (value *v*), the last *v*−1 countable pages get `[1]` … `[v-1]`; earlier pages and binding parts are lettered `[1a]`, `[1b]`, … (§1.1.4). With no printed numbers at all, every page from the first countable one is `[1]`, `[2]`, … (§1.1.4 d); leading binding parts are lettered.
+3. Between anchors *a* and *b* of the same system, the *b*−*a*−1 missing numbers are given to some of the unnumbered pages and the rest are lettered after the preceding number (`[16a]`). The choice minimizes a cost: counting an uncounted page costs 10, a number on the wrong side costs 1 (odd numbers on the side that the observed numbers mostly show, by default right). Ties put lettered pages first (`16, [16a], [16b], [17], 18`, the first PPM variant).
 4. More missing numbers than pages (`page_number_gap`: scans missing or a number misread): pages between stay unlabelled (`page_number: null`); nothing is invented. A change of numeral system (roman front matter → arabic body) or a restart starts a new sequence as in step 2, lettering the leftovers after the previous number; a non-increasing step is flagged `page_number_sequence_break` (PPM: "nekonzistence v paginaci").
-5. After the last anchor, countable pages continue `[v+1]`, … until the first binding part or insert; everything after it is lettered.
+5. After the last anchor, all pages continue the count `[v+1]`, `[v+2]`, …, binding parts included (§1.1.4 c). The Kramerius record of a 1902 monograph in our local data does exactly this (`69, [70]` blank, `[71]` backEndSheet, `[72]` backCover), while front binding parts are lettered (`[1a]` frontCover, `[1b]` frontEndSheet, `[1]` titlePage); `tests/test_reconcile.py` reproduces all 74 labels of that book from idealized observations.
 
-Not handled yet: leaf numbering (`1r`, `1v`), column numbers, the optional `55 [58]` form, and the evidence a page itself gives about being an inserted plate (that needs observation fields; see the follow-up issue).
+Not handled yet: leaf numbering (`1r`, `1v`), column numbers, the optional `55 [58]` form.
 
 The prompt (`RECONCILE_SYSTEM`, version `reconcile`) is text-only and refers to scans by position. Its input lists the numbering summary and **every** scan in one line (observed type, side, printed numbers, the label computed from the observations) with headings, TOC entries and bibliographic data indented below; values are never shortened. Example (the book of `tests/test_reconcile.py`, abridged):
 ```text
@@ -82,26 +83,27 @@ Printed page numbering (computed from the observations):
 - page_number_conflict: scan 11 shows page number 31, but the numbers on scan 10 (3) and scan 12 (5) imply 4; labelled 4 (NDK 1.1.2)
 - page_number_gap: page numbers jump from 6 (scan 15) to 9 (scan 17) with 1 unnumbered page(s) in between: scans may be missing or a number misread; pages in between left unlabelled
 
-Scans (type; side; printed page numbers; computed NDK page label):
-scan 1: FrontCover; side unknown; no printed number; label [Ia]
+Scans (page type and side with self-reported confidence and reason; leaf kind; printed page numbers; computed NDK page label):
+scan 1: frontCover (0.9); side unknown; no printed number; label [Ia]
   title: "CESTY PO ŠUMAVĚ"
-scan 2: Blank; side unknown; no printed number; label [Ib]
-scan 3: TitlePage; left; no printed number; label [I]
+scan 2: blank (0.9); side unknown; no printed number; label [Ib]
+scan 3: titlePage (0.9); left (0.6); no printed number; label [I]
   title: "Cesty po Šumavě"
   author: "Karel Klostermann"
   publication_place: "V Praze"
 ...
-scan 5: TableOfContents; side unknown; printed III; label III
+scan 5: tableOfContents (0.9); side unknown; printed III; label III
   TOC entry level 1: "Úvod" -> "1"
   TOC entry level 1: "Kapitola II. Na horách" -> "6"
   TOC entry level 1: "Kapitola III. Domů" -> "40"
 ...
-scan 13: Illustration; side unknown; no printed number; label [5a]
-scan 14: Blank; side unknown; no printed number; label [5b]
-scan 15: NormalPage; side unknown; printed 6; label 6
+scan 13: illustration (0.9); side unknown; no printed number; label [5a]
+scan 14: blank (0.9); side unknown; no printed number; label [5b]
+scan 15: normalPage (0.9); side unknown; printed 6; label 6
   heading level 1: "Kapitola II. Na horách"
+...
 ```
-The answer is `{scan_corrections: [{scan, page_type|null, side: keep|left|right|both|none, reason}], bibliography: [{field, value, source_scans, notes}], chapters: [{title, level, toc_scans, printed_page_reference, heading_scan, notes}], issues: [{code, message, scans}]}`, in one request with `reconcile_max_output_tokens`. With one line per scan, a 500-scan book needs about 30k characters. If the input exceeds `reconcile_max_chars` the call fails **before** the request with a clear message; splitting a book into several requests is not implemented. Observation `notes`, confidences and chapter subtitles/part numbers are not passed on. Bump `RECONCILE_PROMPT_NUMBER` when the prompt or the input format changes. Not measured on real books yet.
+The answer is `{scan_corrections: [{scan, page_type|null, side: keep|left|right|both|none, reason}], bibliography: [{field, value, source_scans, notes}], chapters: [{title, level, toc_scans, printed_page_reference, heading_scan, notes}], issues: [{code, message, scans}]}`, in one request with `reconcile_max_output_tokens`. With one line per scan, a 500-scan book needs about 30k characters. If the input exceeds `reconcile_max_chars` the call fails **before** the request with a clear message; splitting a book into several requests is not implemented. Chapter subtitles/part numbers are not passed on. Bump `RECONCILE_PROMPT_NUMBER` when the prompt or the input format changes. Not measured on real books yet.
 
 ## Manual check (issue #5)
 Run 2026-10-09 with `vllm-doc observe` on 16 scans picked from 9 local digitized documents (not committed): title pages of a 1902 Czech monograph and a 1965 geophysics offprint in a series, journal covers, two bilingual TOC pages, a blank page, a nearly invisible mirrored show-through page, text pages with chapter headings and with printer's signature marks, a 17th-century Latin occasional print, and a fold-out map. No real two-page spreads were available, so spread handling is untested. Each scan was annotated independently (no context), via OpenRouter with default settings, prompt versions 1–3, `openai/gpt-4.1-mini` and `openai/gpt-5.4-mini`.
