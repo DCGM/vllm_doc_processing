@@ -5,7 +5,7 @@ Experimental **API-only vision-language model processing of digitized books**. A
 **Status: early implementation.** The output data model (`src/vllm_doc_processing/models.py`, issue #1) exists; no runnable CLI yet. Start with the dependency-ordered [issues](https://github.com/DCGM/vllm_doc_processing/issues) (#1–#8 for MVP); code follows in separate PRs.
 
 ## Scope
-- Input: directory of naturally sorted book images, one image per scan (single page or facing-page spread).
+- Input: directory of book images (one image per scan: single page or facing-page spread) plus an order file listing the image names without extensions, one per line, in physical scan order. Filenames (usually UUIDs) carry no order.
 - Provider: direct OpenAI or OpenRouter using OpenAI-compatible APIs; vision model configurable.
 - Output: versioned custom JSON with bibliography, per-scan annotations, printed numbering (separate from scan index), page sides/types, chapter hierarchy, evidence, reconciled values and request metrics.
 - Processing: sequential per scan with bounded summary of previously extracted data, followed by a book-level consistency pass.

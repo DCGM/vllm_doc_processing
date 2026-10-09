@@ -178,9 +178,9 @@ class ScanObservation(StrictModel):
 
 
 class ScanRecord(StrictModel):
-    scan_id: str = Field(min_length=1)
-    scan_index: int = Field(ge=0, description="Zero-based physical position; not a page number.")
-    filename: str = Field(min_length=1, description="Original file name within the input directory.")
+    scan_id: str = Field(min_length=1, description="Name from the order file (file name without extension).")
+    scan_index: int = Field(ge=0, description="Zero-based position in the order file; not a page number.")
+    filename: str = Field(min_length=1, description="Original file name, with extension, in the input directory.")
     image_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     width: int | None = Field(default=None, gt=0)
     height: int | None = Field(default=None, gt=0)
@@ -361,6 +361,7 @@ class RunInfo(StrictModel):
 
 class SourceInfo(StrictModel):
     input_directory: str | None = None
+    order_file: str | None = Field(default=None, description="File listing scan names in physical order.")
     scan_count: int = Field(ge=0)
 
 

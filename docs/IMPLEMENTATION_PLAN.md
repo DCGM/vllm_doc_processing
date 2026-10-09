@@ -16,7 +16,7 @@ In scope: monographs/volumes; bibliographic fields, page-type labels, scan side 
 
 ## Pipeline
 ```text
-book_dir/ (naturally sorted image files)
+book_dir/ (image files) + order file (names without extensions, in scan order)
   -> manifest (ordered scan IDs, checksums, dimensions)
   -> for each scan in order:
        image + bounded context from previous structured observations
