@@ -56,7 +56,7 @@ Every resolved assertion is a `Claim`:
 - `changes[]` — audit log `{field_path, old_value, new_value, reason, source_scan_ids}` wherever the resolved value differs from (or adds to) the observations.
 
 ## Run provenance
-`CallRecord` is one request **attempt**: `call_id`, `stage: observe|reconcile|escalate|revisit`, `scan_id?`, `provider`, `model`, `attempt` (retries > 1), `status: ok|invalid_response|error`, `started_at`, `latency_s`, `prompt_tokens`, `completion_tokens`, `cost_usd` (as reported; `null` if not), `error`. `totals` must equal `UsageTotals.from_calls(calls)` (call `run.refresh_totals()` after adding calls); `cost_complete: false` means some calls lacked a reported cost. `parameters` must never contain secrets.
+`CallRecord` is one request **attempt**: `call_id`, `stage: observe|reconcile|escalate|revisit`, `scan_id?`, `provider`, `model`, `attempt` (retries > 1), `status: ok|invalid_response|error`, `started_at`, `latency_s`, `prompt_tokens`, `completion_tokens`, `cost_usd` (as reported; `null` if not — OpenRouter reports cost, OpenAI does not), `response_id` (provider response/generation ID), `served_model` (model name in the response, e.g. a dated snapshot), `upstream_provider` (serving provider behind OpenRouter), `error` (redacted, truncated; never contains prompts, images or keys). `totals` must equal `UsageTotals.from_calls(calls)` (call `run.refresh_totals()` after adding calls); `cost_complete: false` means some calls lacked a reported cost. `parameters` must never contain secrets.
 
 ## Validated invariants
 - `schema_version` is `"0.1"`; `source.scan_count == len(scans)`.
