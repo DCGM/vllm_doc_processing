@@ -335,6 +335,9 @@ class CallRecord(StrictModel):
     prompt_tokens: int | None = Field(default=None, ge=0)
     completion_tokens: int | None = Field(default=None, ge=0)
     cost_usd: float | None = Field(default=None, ge=0, description="As reported by the provider, if any.")
+    response_id: str | None = Field(default=None, description="Provider's response/generation ID.")
+    served_model: str | None = Field(default=None, description="Model as reported in the response (may be a snapshot).")
+    upstream_provider: str | None = Field(default=None, description="Serving provider behind OpenRouter, if reported.")
     error: str | None = None
 
 

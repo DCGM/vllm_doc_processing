@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, field_validator, model_validator
 
 Provider = Literal["openai", "openrouter"]
 
@@ -23,6 +23,8 @@ API_KEY_ENV: dict[str, str] = {
     "openai": "OPENAI_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
 }
+RESERVED_REQUEST_PARAMS = frozenset({"model", "messages", "response_format", "stream", "n", "tools", "tool_choice"})
+"""Request fields set by the adapter itself; ``request_params`` must not override them."""
 
 
 class ConfigError(Exception):
@@ -45,6 +47,13 @@ class Config(BaseModel):
         default=2048, ge=256, description="Downscale uploads so the longest side is at most this; None = never."
     )
     image_format: Literal["jpeg", "png"] = Field(default="jpeg", description="Encoding of converted/resized uploads.")
+    image_detail: Literal["auto", "low", "high"] = Field(default="high", description="Image `detail` sent with each scan.")
+    request_timeout_s: float = Field(default=180.0, gt=0, description="Timeout of one API request attempt.")
+    max_retries: int = Field(default=3, ge=0, le=10, description="Retries after a transient or invalid response.")
+    request_params: dict[str, JsonValue] = Field(
+        default_factory=dict,
+        description="Extra request body fields, e.g. temperature, max_completion_tokens, reasoning settings.",
+    )
 
     @field_validator("base_url")
     @classmethod
@@ -52,6 +61,17 @@ class Config(BaseModel):
         if value is not None and not value.startswith(("https://", "http://")):
             raise ValueError("must start with http:// or https://")
         return value
+
+    @model_validator(mode="after")
+    def _check_request_params(self) -> Config:
+        reserved = sorted(RESERVED_REQUEST_PARAMS & self.request_params.keys())
+        if reserved:
+            raise ValueError(f"request_params must not set {reserved}; they are set by the tool")
+        if "provider" in self.request_params and not (
+            self.provider == "openrouter" and isinstance(self.request_params["provider"], dict)
+        ):
+            raise ValueError("request_params.provider must be an object (OpenRouter provider routing only)")
+        return self
 
     @property
     def effective_base_url(self) -> str:

@@ -2,7 +2,7 @@
 
 Experimental **API-only vision-language model processing of digitized books**. A folder of ordered book scans is analyzed image by image using a vision model with context derived from earlier extracted pages. A final text LLM pass reconciles bibliographic metadata, page numbering, page types, sides, table of contents and chapter structure into a custom JSON.
 
-**Status: early implementation.** The output data model (`src/vllm_doc_processing/models.py`, issue #1) the CLI/configuration scaffold (issue #2) and the scan inventory/image preparation (issue #3) exist; the CLI can validate a run with `--dry-run` but does not process scans yet. Start with the dependency-ordered [issues](https://github.com/DCGM/vllm_doc_processing/issues) (#1–#8 for MVP); code follows in separate PRs.
+**Status: early implementation.** The output data model (`src/vllm_doc_processing/models.py`, issue #1) the CLI/configuration scaffold (issue #2) the scan inventory/image preparation (issue #3) and the OpenAI/OpenRouter structured-output API adapter (issue #4) exist; the CLI can validate a run with `--dry-run` but does not process scans yet. Start with the dependency-ordered [issues](https://github.com/DCGM/vllm_doc_processing/issues) (#1–#8 for MVP); code follows in separate PRs.
 
 ## Scope
 - Input: directory of book images (one image per scan: single page or facing-page spread) plus an order file listing the image names without extensions, one per line, in physical scan order. Filenames (usually UUIDs) carry no order.
@@ -23,7 +23,7 @@ vllm-doc process --input /data/scanned-book --output /data/book.json \
   --provider openrouter --model '<vision-model-id>' \
   --postprocess-model '<text-model-id>' --dry-run
 ```
-`--dry-run` validates configuration, paths and the scan inventory (see [Input scans](#input-scans)), prints the effective (non-secret) settings and scan counts and makes no API calls; a missing API key is reported as a warning (`api_key_set: false`), so it also works without credentials. Without `--dry-run` the command currently exits with an error: processing lands with issues #3–#8. Model names are intentionally not fixed until live benchmarking.
+`--dry-run` validates configuration, paths and the scan inventory (see [Input scans](#input-scans)), prints the effective (non-secret) settings and scan counts and makes no API calls; a missing API key is reported as a warning (`api_key_set: false`), so it also works without credentials. Without `--dry-run` the command currently exits with an error: processing lands with issues #5–#8. Model names are intentionally not fixed until live benchmarking.
 
 ### `vllm-doc process` options
 | Flag | Meaning |
@@ -51,6 +51,10 @@ Precedence: **built-in defaults < `--config` JSON file < command-line flags**. T
 | `max_pages` | no | `null` (all scans) |
 | `image_max_side` | no | `2048` px; uploads are downscaled so the longest side fits (`null` = never downscale, minimum 256) |
 | `image_format` | no | `jpeg` (quality 90); encoding of converted or downscaled uploads, or `png` (lossless, larger) |
+| `image_detail` | no | `high`; image `detail` hint sent with each scan (`auto`, `low`, `high`); providers other than OpenAI may ignore it |
+| `request_timeout_s` | no | `180`; timeout of one request attempt in seconds |
+| `max_retries` | no | `3`; retries after rate limits (429), timeouts/connection errors, 408/409/5xx and responses that fail schema validation |
+| `request_params` | no | `{}`; extra request body fields, e.g. `{"temperature": 0, "max_completion_tokens": 8000, "reasoning_effort": "low"}`; with OpenRouter also `provider` routing preferences. `model`, `messages`, `response_format`, `stream`, `n`, `tools`, `tool_choice` are rejected |
 
 ### Input scans
 - The order file lists image names without extensions, one per line, in physical scan order; surrounding whitespace and blank lines are ignored. Empty order files, duplicate names and names containing path separators are errors.
@@ -62,10 +66,17 @@ Precedence: **built-in defaults < `--config` JSON file < command-line flags**. T
 
 Credentials are read **only** from the environment: `OPENAI_API_KEY` for `openai`, `OPENROUTER_API_KEY` for `openrouter`; an `api_key` entry in the config file is an error. A custom `base_url` still uses the selected provider's key variable. If `--provider` overrides a different provider from the config file, the file's `base_url` is discarded (the new provider's default is used unless `--base-url` is also given), so a key is never sent to another provider's endpoint. Exit codes: `0` success, `2` invalid arguments, configuration or paths, `1` runtime failure.
 
+### API requests
+- Every request uses Chat Completions with a strict `json_schema` `response_format` generated from a Pydantic model; the answer is validated locally again. Images are sent as base64 data URLs, one per request.
+- With OpenRouter, `provider.require_parameters` is always set to `true` (merged into any `request_params.provider` preferences), so requests are only routed to endpoints that support structured outputs instead of silently dropping the schema. A model/route without vision or `json_schema` support fails immediately with an explicit error (HTTP 400/404), as do authentication errors; those are not retried.
+- Transient failures and invalid answers (bad JSON, schema mismatch, refusal, truncated output) are retried up to `max_retries` times with exponential backoff (honouring `Retry-After`). Each attempt — including failed but billed ones — is recorded as a `CallRecord` with tokens, provider-reported cost (OpenRouter only), latency and served model, and logged as one line without prompts, image data or keys.
+
 ## Development
 ```bash
 pip install -e '.[dev]'
 pytest            # offline tests only
+# opt-in paid smoke test of one vision + structured-output request:
+VLLM_DOC_LIVE_TEST=1 VLLM_DOC_LIVE_PROVIDER=openrouter VLLM_DOC_LIVE_MODEL='<vision-model-id>' pytest tests/test_llm_live.py -s
 ```
 The output JSON format is defined by Pydantic models in `src/vllm_doc_processing/models.py`, documented in [docs/OUTPUT_SCHEMA.md](docs/OUTPUT_SCHEMA.md), with a validated example in [examples/annotated_book.example.json](examples/annotated_book.example.json).
 
