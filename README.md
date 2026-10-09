@@ -51,7 +51,7 @@ Precedence: **built-in defaults < `--config` JSON file < command-line flags**. T
 | `max_pages` | no | `null` (all scans) |
 | `image_max_side` | no | `2048` px; uploads are downscaled so the longest side fits (`null` = never downscale, minimum 256) |
 | `image_format` | no | `jpeg` (quality 90); encoding of converted or downscaled uploads, or `png` (lossless, larger) |
-| `image_detail` | no | `high`; image `detail` hint sent with each scan (`auto`, `low`, `high`); providers other than OpenAI may ignore it |
+| `image_detail` | no | `auto`; image `detail` hint sent with each scan (`auto`, `low`, `high`); `high` may help with small print at higher cost; providers other than OpenAI may ignore it |
 | `request_timeout_s` | no | `180`; timeout of one request attempt in seconds |
 | `max_retries` | no | `3`; retries after rate limits (429), timeouts/connection errors, 408/409/5xx and responses that fail schema validation |
 | `request_params` | no | `{}`; extra request body fields, e.g. `{"temperature": 0, "max_completion_tokens": 8000, "reasoning_effort": "low"}`; with OpenRouter also `provider` routing preferences. `model`, `messages`, `response_format`, `stream`, `n`, `tools`, `tool_choice` are rejected |
@@ -69,6 +69,7 @@ Credentials are read **only** from the environment: `OPENAI_API_KEY` for `openai
 ### API requests
 - Every request uses Chat Completions with a strict `json_schema` `response_format` generated from a Pydantic model; the answer is validated locally again. Images are sent as base64 data URLs, one per request.
 - With OpenRouter, `provider.require_parameters` is always set to `true` (merged into any `request_params.provider` preferences), so requests are only routed to endpoints that support structured outputs instead of silently dropping the schema. A model/route without vision or `json_schema` support fails immediately with an explicit error (HTTP 400/404), as do authentication errors; those are not retried.
+- `require_parameters` applies to **every** request parameter, not only the schema: anything in `request_params` that a route does not support (e.g. `temperature` for many reasoning models, `top_k` for OpenAI models) removes that route, and if none is left the request fails with HTTP 404 "No endpoints found that can handle the requested parameters". Keep `request_params` minimal and check the model's supported parameters on OpenRouter.
 - Transient failures and invalid answers (bad JSON, schema mismatch, refusal, truncated output) are retried up to `max_retries` times with exponential backoff (honouring `Retry-After`). Each attempt — including failed but billed ones — is recorded as a `CallRecord` with tokens, provider-reported cost (OpenRouter only), latency and served model, and logged as one line without prompts, image data or keys.
 
 ## Development
@@ -77,6 +78,7 @@ pip install -e '.[dev]'
 pytest            # offline tests only
 # opt-in paid smoke test of one vision + structured-output request:
 VLLM_DOC_LIVE_TEST=1 VLLM_DOC_LIVE_PROVIDER=openrouter VLLM_DOC_LIVE_MODEL='<vision-model-id>' pytest tests/test_llm_live.py -s
+# (passed with openai/gpt-4.1-nano via OpenRouter, ~$0.00002)
 ```
 The output JSON format is defined by Pydantic models in `src/vllm_doc_processing/models.py`, documented in [docs/OUTPUT_SCHEMA.md](docs/OUTPUT_SCHEMA.md), with a validated example in [examples/annotated_book.example.json](examples/annotated_book.example.json).
 
