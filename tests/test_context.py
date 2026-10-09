@@ -121,3 +121,17 @@ def test_mock_book_run_is_sequential_bounded_and_deterministic(tmp_path, caplog)
     book2, requests2 = run()
     assert [r["messages"] for r in requests2] == [r["messages"] for r in requests]
     assert [s.observation for s in book2.scans] == [s.observation for s in book.scans]
+
+
+def test_use_context_off_sends_no_context(tmp_path):
+    book_dir = tmp_path / "book"
+    book_dir.mkdir()
+    (book_dir / "order.txt").write_text("a\nb\n")
+    for name in "ab":
+        Image.new("L", (40, 60), 255).save(book_dir / f"{name}.png")
+    config = build_config({"provider": "openrouter", "model": "vendor/vlm", "use_context": False}, {})
+    fake = FakeClient(completion(json.dumps(TITLE)), completion(json.dumps(BLANK)))
+    inventory = build_inventory(book_dir, book_dir / "order.txt")
+    book = observe_book(LLMClient(config, client=fake, sleep=lambda s: None), inventory)
+    assert all("Context" not in r["messages"][1]["content"][-1]["text"] for r in fake.requests)
+    assert book.run.parameters["use_context"] is False and book.scans[1].observation.page_type == "Blank"

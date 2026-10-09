@@ -27,7 +27,7 @@ The page-type definitions are our own reading of the MetaKat/Czech NDK vocabular
 Use `vllm-doc observe` (README) to try the prompt on selected scans.
 
 ## Context from earlier scans (issue #6)
-`pipeline.observe_book` observes the scans strictly in order; each request carries only the current image plus a text context built by `context.build_context` from the stored observations of **all** earlier scans. The context is rebuilt from scratch for every scan, deterministically (same observations → same text), never edits the observations, and is not stored: it can be regenerated from `scans[].observation`. Its format version is recorded as `run.prompt_versions.context`. Example (scan 6 of a book):
+`pipeline.observe_book` observes the scans strictly in order; each request carries only the current image plus a text context built by `context.build_context` from the stored observations of **all** earlier scans. The context is rebuilt from scratch for every scan, deterministically (same observations → same text), never edits the observations, and is not stored: it can be regenerated from `scans[].observation`. Its format version is recorded as `run.prompt_versions.context`. With `use_context: false` no context is sent (every scan is observed on its own, as with `vllm-doc observe`), so the effect of the context can be measured; the setting is recorded in `run.parameters`. Example (scan 6 of a book):
 ```text
 Scans 1-5 so far; "scan N" is a scan position, not a page number.
 Bibliographic data seen (field: value (scans)):

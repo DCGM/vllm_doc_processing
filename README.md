@@ -62,6 +62,7 @@ Precedence: **built-in defaults < `--config` JSON file < command-line flags**. T
 | `request_timeout_s` | no | `180`; timeout of one request attempt in seconds |
 | `max_retries` | no | `3`; retries after rate limits (429), timeouts/connection errors, 408/409/5xx and responses that fail schema validation |
 | `max_output_tokens` | no | `4000`; output token cap of each request, sent as `max_completion_tokens` (openai) or `max_tokens` (openrouter); includes reasoning tokens, so raise it for high reasoning effort. A truncated answer is rejected and retried, so the cap bounds the cost of run-away output. `null` = no cap |
+| `use_context` | no | `true`; send a bounded text summary of earlier scans with each scan; `false` observes every scan on its own (for comparing the effect of context) |
 | `context_recent_scans` | no | `5`; number of earlier scans summarized one line each in the text context sent with the next scan (0–50, see [docs/PROMPTS.md](docs/PROMPTS.md#context-from-earlier-scans-issue-6)) |
 | `context_max_chars` | no | `2000`; hard limit on the length of that context text (minimum 200); oldest scan lines are dropped first |
 | `request_params` | no | `{}`; extra request body fields, e.g. `{"temperature": 0, "reasoning_effort": "low"}`; with OpenRouter also `provider` routing preferences. `model`, `messages`, `response_format`, `stream`, `n`, `tools`, `tool_choice`, `max_tokens`, `max_completion_tokens` are rejected |
