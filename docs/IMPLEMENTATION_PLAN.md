@@ -36,7 +36,7 @@ vllm-doc process --input ./my-book --output ./results/book.json \
   --provider openrouter --model '<vision-model-id>' \
   --postprocess-model '<text-model-id>'
 ```
-Implemented by #2: `--config config.json` (precedence defaults < file < CLI), `--order-file` (default `BOOK_DIR/order.txt`), `--base-url`, `--dry-run`; by #3: `--max-pages 20`, `image_max_side`/`image_format` settings; by #4: `image_detail`, `request_timeout_s`, `max_retries`, `request_params` settings. Expected later: `--skip-postprocess`, `--resume`, `--escalation-model`. Actual supported flags are tracked in README and `--help` as issues land; new settings are added to `config.Config` by the issue that needs them.
+Implemented by #2: `--config config.json` (precedence defaults < file < CLI), `--order-file` (default `BOOK_DIR/order.txt`), `--base-url`, `--dry-run`; by #3: `--max-pages 20`, `image_max_side`/`image_format` settings; by #4: `image_detail`, `request_timeout_s`, `max_retries`, `request_params` settings; by #5: `vllm-doc observe` (independent per-scan annotation for prompt checks). Expected later: `--skip-postprocess`, `--resume`, `--escalation-model`. Actual supported flags are tracked in README and `--help` as issues land; new settings are added to `config.Config` by the issue that needs them.
 
 ### Document reasoning specifics
 - Scan index is an ordered physical image index, starting at zero. Printed number is separately observed and may use Arabic or Roman numerals, omit numbers, repeat, or restart.

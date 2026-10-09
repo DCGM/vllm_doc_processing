@@ -2,7 +2,7 @@
 
 Experimental **API-only vision-language model processing of digitized books**. A folder of ordered book scans is analyzed image by image using a vision model with context derived from earlier extracted pages. A final text LLM pass reconciles bibliographic metadata, page numbering, page types, sides, table of contents and chapter structure into a custom JSON.
 
-**Status: early implementation.** The output data model (`src/vllm_doc_processing/models.py`, issue #1) the CLI/configuration scaffold (issue #2) the scan inventory/image preparation (issue #3) and the OpenAI/OpenRouter structured-output API adapter (issue #4) exist; the CLI can validate a run with `--dry-run` but does not process scans yet. Start with the dependency-ordered [issues](https://github.com/DCGM/vllm_doc_processing/issues) (#1–#8 for MVP); code follows in separate PRs.
+**Status: early implementation.** The output data model (`src/vllm_doc_processing/models.py`, issue #1) the CLI/configuration scaffold (issue #2) the scan inventory/image preparation (issue #3) the OpenAI/OpenRouter structured-output API adapter (issue #4) and the single-scan annotation prompt (issue #5, `vllm-doc observe`) exist; `vllm-doc process` can validate a run with `--dry-run` but does not process whole books yet. Start with the dependency-ordered [issues](https://github.com/DCGM/vllm_doc_processing/issues) (#1–#8 for MVP); code follows in separate PRs.
 
 ## Scope
 - Input: directory of book images (one image per scan: single page or facing-page spread) plus an order file listing the image names without extensions, one per line, in physical scan order. Filenames (usually UUIDs) carry no order.
@@ -23,7 +23,7 @@ vllm-doc process --input /data/scanned-book --output /data/book.json \
   --provider openrouter --model '<vision-model-id>' \
   --postprocess-model '<text-model-id>' --dry-run
 ```
-`--dry-run` validates configuration, paths and the scan inventory (see [Input scans](#input-scans)), prints the effective (non-secret) settings and scan counts and makes no API calls; a missing API key is reported as a warning (`api_key_set: false`), so it also works without credentials. Without `--dry-run` the command currently exits with an error: processing lands with issues #5–#8. Model names are intentionally not fixed until live benchmarking.
+`--dry-run` validates configuration, paths and the scan inventory (see [Input scans](#input-scans)), prints the effective (non-secret) settings and scan counts and makes no API calls; a missing API key is reported as a warning (`api_key_set: false`), so it also works without credentials. Without `--dry-run` the command currently exits with an error: processing lands with issues #6–#8. Model names are intentionally not fixed until live benchmarking.
 
 ### `vllm-doc process` options
 | Flag | Meaning |
@@ -38,6 +38,13 @@ vllm-doc process --input /data/scanned-book --output /data/book.json \
 | `--postprocess-model ID` | Text model for reconciliation; defaults to `--model`. |
 | `--max-pages N` | Process only the first N scans of the order file (cheap experiments). |
 | `--dry-run` | Validate and print effective settings; no API calls. |
+
+### `vllm-doc observe` (prompt checks)
+```bash
+vllm-doc observe --input /data/scanned-book --provider openrouter --model '<vision-model-id>' \
+  --scans <scan-id> <scan-id> > observations.jsonl     # or --max-pages N
+```
+Annotates the selected scans **independently** (no context from other scans) with the observation prompt and prints one JSON line per scan, in scan order: `scan_id`, `scan_index`, `filename`, `model`, `prompt_version`, `observation` (a `ScanObservation`, or `null`), `error` and `calls` (every attempt as a `CallRecord`). Per-call log lines and a usage/cost summary go to stderr. It accepts `--input`, `--order-file`, `--config`, `--provider`, `--base-url`, `--model`; `max_pages` from a config file is ignored. Exit code `1` if any scan failed after retries. Paid: every selected scan is one or more requests. The prompt is described in [docs/PROMPTS.md](docs/PROMPTS.md).
 
 ### Configuration
 Precedence: **built-in defaults < `--config` JSON file < command-line flags**. The config file is a flat JSON object whose keys match the settings below; unknown keys are rejected so typos fail loudly. See [examples/config.example.json](examples/config.example.json).
@@ -85,6 +92,7 @@ The output JSON format is defined by Pydantic models in `src/vllm_doc_processing
 ## Design and contributions
 - [Implementation plan and backlog](docs/IMPLEMENTATION_PLAN.md)
 - [JSON output schema and MetaKat mapping](docs/OUTPUT_SCHEMA.md)
+- [Prompts](docs/PROMPTS.md)
 - [Agent development instructions](AGENTS.md)
 - [MetaKat](https://github.com/DCGM/MetaKat) — basis for comparison and page-type/metadata vocabulary
 
