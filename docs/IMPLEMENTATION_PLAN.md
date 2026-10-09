@@ -36,7 +36,7 @@ vllm-doc process --input ./my-book --output ./results/book.json \
   --provider openrouter --model '<vision-model-id>' \
   --postprocess-model '<text-model-id>'
 ```
-Expected experimental options: `--config config.json`, `--max-pages 20`, `--skip-postprocess`, `--resume`, `--dry-run`, `--escalation-model` (later). Actual supported flags should be tracked in README and `--help` as issues land.
+Implemented by #2: `--config config.json` (precedence defaults < file < CLI), `--order-file` (default `BOOK_DIR/order.txt`), `--base-url`, `--dry-run`. Expected later: `--max-pages 20`, `--skip-postprocess`, `--resume`, `--escalation-model`. Actual supported flags are tracked in README and `--help` as issues land; new settings are added to `config.Config` by the issue that needs them.
 
 ### Document reasoning specifics
 - Scan index is an ordered physical image index, starting at zero. Printed number is separately observed and may use Arabic or Roman numerals, omit numbers, repeat, or restart.
