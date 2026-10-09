@@ -19,8 +19,8 @@ log = logging.getLogger(__name__)
 def observe_book(client: LLMClient, inventory: Inventory, order_file: Path | None = None) -> AnnotatedBook:
     """Observe ``inventory.scans`` in scan order and return the intermediate book (``resolved`` is None).
 
-    Each request carries only the current image and a context built from the observations of all
-    earlier scans; stored observations are never changed afterwards. A scan that fails after retries
+    Each request carries only the current image and (unless ``use_context`` is off) a context built
+    from the observations of all earlier scans; stored observations are never changed afterwards. A scan that fails after retries
     keeps ``observation=None`` (its attempts stay in ``run.calls``) and processing continues.
     """
     config = client.config
@@ -43,7 +43,11 @@ def observe_book(client: LLMClient, inventory: Inventory, order_file: Path | Non
         ),
     )
     for i, scan in enumerate(scans):
-        context = build_context(scans[:i], recent_scans=config.context_recent_scans, max_chars=config.context_max_chars)
+        context = (
+            build_context(scans[:i], recent_scans=config.context_recent_scans, max_chars=config.context_max_chars)
+            if config.use_context
+            else None
+        )
         try:
             result = observe_scan(client, inventory, scan, context)
             scan.observation, scan.observation_call_id = result.value, result.call.call_id

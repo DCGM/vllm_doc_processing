@@ -59,6 +59,9 @@ class Config(BaseModel):
     max_output_tokens: int | None = Field(
         default=4000, ge=1, description="Output token cap per request (includes reasoning tokens); None = no cap."
     )
+    use_context: bool = Field(
+        default=True, description="Send a text summary of earlier scans with each scan (False: every scan alone)."
+    )
     context_recent_scans: int = Field(
         default=5, ge=0, le=50, description="Earlier scans summarized one line each in the context of the next scan."
     )
