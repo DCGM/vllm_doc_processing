@@ -13,6 +13,7 @@ Unknown values are ``None`` or empty lists, never guesses.
 
 from __future__ import annotations
 
+import math
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Generic, Literal, TypeVar
@@ -245,11 +246,28 @@ class PageLabel(StrictModel):
     notes: str | None = None
 
 
+class ResolvedSubpage(StrictModel):
+    """Resolved type of one page of a spread."""
+
+    side: LeafSide
+    page_type: Claim[PageType] | None = None
+
+
 class ResolvedScan(StrictModel):
     scan_id: str
     page_type: Claim[PageType] | None = None
     side: Claim[ScanSide] | None = None
+    subpages: list[ResolvedSubpage] = Field(default_factory=list)
     page_labels: list[PageLabel] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_subpages(self) -> ResolvedScan:
+        sides = [s.side for s in self.subpages]
+        if len(sides) != len(set(sides)):
+            raise ValueError("subpages must have distinct sides")
+        if self.subpages and (self.side is None or self.side.value != "both"):
+            raise ValueError("subpages are only allowed on a scan resolved as side='both'")
+        return self
 
 
 class StructureNode(StrictModel):
@@ -342,6 +360,8 @@ class UsageTotals(StrictModel):
 
 
 class RunInfo(StrictModel):
+    """``totals`` must equal ``UsageTotals.from_calls(calls)``; call ``refresh_totals()`` after adding calls."""
+
     tool_version: str | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
@@ -354,6 +374,20 @@ class RunInfo(StrictModel):
     calls: list[CallRecord] = Field(default_factory=list)
     totals: UsageTotals = Field(default_factory=UsageTotals)
     warnings: list[str] = Field(default_factory=list)
+
+    def refresh_totals(self) -> None:
+        self.totals = UsageTotals.from_calls(self.calls)
+
+    @model_validator(mode="after")
+    def _check_totals(self) -> RunInfo:
+        expected, got = UsageTotals.from_calls(self.calls), self.totals
+        if None in (expected.cost_usd, got.cost_usd):
+            cost_ok = expected.cost_usd == got.cost_usd
+        else:
+            cost_ok = math.isclose(expected.cost_usd, got.cost_usd, rel_tol=1e-9)
+        if not cost_ok or got.model_dump(exclude={"cost_usd"}) != expected.model_dump(exclude={"cost_usd"}):
+            raise ValueError(f"run.totals inconsistent with run.calls; expected {expected.model_dump()}")
+        return self
 
 
 # --- Top level ---------------------------------------------------------------
@@ -386,12 +420,13 @@ class AnnotatedBook(StrictModel):
 
         index = {s.scan_id: s.scan_index for s in self.scans}
         refs = [c.scan_id for c in self.run.calls if c.scan_id]
+        calls = {c.call_id: c for c in self.run.calls}
         for s in self.scans:
-            if s.observation_call_id is not None and s.observation_call_id not in call_ids:
-                raise ValueError(f"unknown observation_call_id {s.observation_call_id!r}")
+            _check_observation_call(s, calls)
         if self.resolved is not None:
+            if [r.scan_id for r in self.resolved.scans] != [s.scan_id for s in self.scans]:
+                raise ValueError("resolved.scans must contain exactly one record per input scan, in scan order")
             refs += _resolved_scan_refs(self.resolved)
-            _require_unique([s.scan_id for s in self.resolved.scans], "resolved scan_id")
             _check_structure(self.resolved.structure, index)
         unknown = sorted(set(refs) - index.keys())
         if unknown:
@@ -405,13 +440,27 @@ def _require_unique(values: list[str], what: str) -> None:
         raise ValueError(f"duplicate {what}: {dupes}")
 
 
+def _check_observation_call(scan: ScanRecord, calls: dict[str, CallRecord]) -> None:
+    """The producing call must exist, belong to this scan, be an observe/escalate call and have succeeded."""
+    if scan.observation_call_id is None:
+        return
+    where = f"scan {scan.scan_id!r}: observation_call_id {scan.observation_call_id!r}"
+    if scan.observation is None:
+        raise ValueError(f"{where} set without an observation")
+    call = calls.get(scan.observation_call_id)
+    if call is None:
+        raise ValueError(f"{where} is unknown")
+    if call.scan_id != scan.scan_id or call.stage not in ("observe", "escalate") or call.status != "ok":
+        raise ValueError(f"{where} must be a successful observe/escalate call for this scan")
+
+
 def _resolved_scan_refs(resolved: ResolvedBook) -> list[str]:
     refs: list[str] = []
     for claim in resolved.bibliography.claims():
         refs += claim.source_scan_ids
     for scan in resolved.scans:
         refs.append(scan.scan_id)
-        for claim in (scan.page_type, scan.side):
+        for claim in (scan.page_type, scan.side, *(sub.page_type for sub in scan.subpages)):
             if claim:
                 refs += claim.source_scan_ids
         for label in scan.page_labels:
@@ -446,8 +495,8 @@ def _check_structure(nodes: list[StructureNode], scan_index: dict[str, int]) -> 
 
 
 def dump_json(book: AnnotatedBook) -> str:
-    """Serialize with indentation; non-ASCII text is kept as UTF-8."""
-    return book.model_dump_json(indent=2) + "\n"
+    """Re-validate (catches in-place edits after construction) and serialize; non-ASCII stays UTF-8."""
+    return AnnotatedBook.model_validate(book.model_dump()).model_dump_json(indent=2) + "\n"
 
 
 def load_json(text: str | bytes) -> AnnotatedBook:
