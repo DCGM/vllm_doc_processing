@@ -27,9 +27,6 @@ UPLOAD_MIME_TYPES = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/we
 JPEG_QUALITY = 90
 EXIF_ORIENTATION = 0x0112
 
-# Large 600 dpi spreads exceed Pillow's default decompression-bomb limit (~89 Mpx).
-Image.MAX_IMAGE_PIXELS = 400_000_000
-
 ImageFormat = Literal["jpeg", "png"]
 
 
@@ -71,8 +68,6 @@ def match_files(
     for entry in directory.iterdir():
         if entry.is_file() and not entry.name.startswith("."):
             by_stem.setdefault(entry.stem, []).append(entry)
-    if not any(p.suffix.lower() in extensions for paths in by_stem.values() for p in paths):
-        raise InputError(f"no files with extensions {', '.join(extensions)} in {directory}")
 
     matches: dict[str, Path] = {}
     problems: list[str] = []
@@ -90,6 +85,8 @@ def match_files(
             problems.append(f"{name!r} has no matching file")
     if problems:
         shown = problems[:20] + ([f"... and {len(problems) - 20} more"] if len(problems) > 20 else [])
+        if not any(p.suffix.lower() in extensions for paths in by_stem.values() for p in paths):
+            shown.insert(0, f"directory contains no files with extensions {', '.join(extensions)}")
         raise InputError(f"order file does not match {directory}: " + "; ".join(shown))
 
     listed = set(names)
@@ -209,9 +206,12 @@ def _to_rgb_or_gray(image: Image.Image) -> Image.Image:
         return image
     if image.mode == "1":
         return image.convert("L")
-    if image.mode.startswith("I"):  # 16/32-bit grayscale scans; plain convert("L") would clip
+    if image.mode.startswith("I"):  # 16/32-bit containers; plain convert("L") would clip
+        # Scale by the smallest bit depth that holds the data, so 12-bit scans stored as 16-bit
+        # (white = 4095) map to full range without stretching the contrast of the page itself.
         image = image.convert("I")
-        scale = 255 / 65535 if image.getextrema()[1] > 255 else 1
+        bits = max(8, int(image.getextrema()[1]).bit_length())
+        scale = 255 / (2**bits - 1)
         return image.point(lambda v: v * scale).convert("L")
     if image.mode in ("RGBA", "LA", "PA") or "transparency" in image.info:
         rgba = image.convert("RGBA")

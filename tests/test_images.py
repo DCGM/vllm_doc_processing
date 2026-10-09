@@ -97,8 +97,21 @@ def test_exif_orientation_is_applied(book):
 
 def test_directory_without_images(tmp_path):
     (tmp_path / "order.txt").write_text("a\n")
-    with pytest.raises(InputError, match="no files with extensions"):
+    Image.new("L", (8, 8)).save(tmp_path / "a.gif")
+    with pytest.raises(InputError) as exc:
         build_inventory(tmp_path, tmp_path / "order.txt")
+    assert "contains no files with extensions" in str(exc.value) and "only: a.gif" in str(exc.value)
+
+
+@pytest.mark.parametrize("white, black_text", [(4095, 0), (65535, 0), (40000, 0)])
+def test_high_bit_depth_gray_keeps_full_range(tmp_path, white, black_text):
+    """12-bit data in a 16-bit TIFF (white = 4095) must not turn almost black."""
+    image = Image.new("I;16", (20, 10), white)
+    image.paste(black_text, (0, 0, 10, 10))
+    image.save(tmp_path / "s.tif")
+    decoded = Image.open(io.BytesIO(prepare_image(tmp_path / "s.tif", None, "png").data))
+    expected_white = round(white * 255 / (4095 if white <= 4095 else 65535))
+    assert abs(decoded.getpixel((15, 5)) - expected_white) <= 1 and decoded.getpixel((5, 5)) == 0
 
 
 def test_match_files_supports_other_extensions(book):
