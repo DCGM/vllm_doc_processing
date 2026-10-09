@@ -88,7 +88,7 @@ def test_image_request_strict_schema_routing_and_usage():
     assert fmt["json_schema"]["schema"]["additionalProperties"] is False
     assert sorted(fmt["json_schema"]["schema"]["required"]) == ["note", "side"]
     image_part, text_part = req["messages"][1]["content"]
-    assert image_part["image_url"] == {"url": IMAGE.data_url(), "detail": "high"}
+    assert image_part["image_url"] == {"url": IMAGE.data_url(), "detail": "auto"}
     assert text_part == {"type": "text", "text": "Which side?"}
     assert req["extra_body"] == {"temperature": 0, "provider": {"order": ["google"], "require_parameters": True}}
 

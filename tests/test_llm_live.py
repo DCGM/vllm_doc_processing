@@ -6,10 +6,9 @@
 
 import io
 import os
-from typing import Literal
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from pydantic import BaseModel
 
 from vllm_doc_processing.config import build_config
@@ -19,8 +18,8 @@ from vllm_doc_processing.llm import LLMClient
 pytestmark = pytest.mark.skipif(os.environ.get("VLLM_DOC_LIVE_TEST") != "1", reason="set VLLM_DOC_LIVE_TEST=1")
 
 
-class DarkHalf(BaseModel):
-    dark_half: Literal["left", "right"]
+class PageNumber(BaseModel):
+    printed_number: str | None
 
 
 def test_live_vision_structured_output():
@@ -29,17 +28,17 @@ def test_live_vision_structured_output():
         {},
     )
     image = Image.new("L", (256, 128), 255)
-    image.paste(0, (128, 0, 256, 128))
+    ImageDraw.Draw(image).text((80, 20), "73", fill=0, font=ImageFont.load_default(size=80))
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
     result = LLMClient(config).request(
-        DarkHalf,
+        PageNumber,
         stage="observe",
         model=config.model,
-        system="You describe images.",
-        user="Which half of the image is black?",
+        system="You read page numbers from book scans.",
+        user="Which number is printed in the image? Answer null if there is none.",
         image=PreparedImage(buffer.getvalue(), "image/png", 256, 128, reencoded=False),
     )
     print(result.call.model_dump_json(indent=2))
-    assert result.value.dark_half == "right"
+    assert result.value.printed_number == "73"
     assert result.call.status == "ok" and result.call.prompt_tokens

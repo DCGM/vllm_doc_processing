@@ -6,7 +6,7 @@
   "max_pages": null,
   "image_max_side": 2048,
   "image_format": "jpeg",
-  "image_detail": "high",
+  "image_detail": "auto",
   "request_timeout_s": 180,
   "max_retries": 3,
   "request_params": {}

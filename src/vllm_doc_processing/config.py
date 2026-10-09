@@ -47,7 +47,7 @@ class Config(BaseModel):
         default=2048, ge=256, description="Downscale uploads so the longest side is at most this; None = never."
     )
     image_format: Literal["jpeg", "png"] = Field(default="jpeg", description="Encoding of converted/resized uploads.")
-    image_detail: Literal["auto", "low", "high"] = Field(default="high", description="Image `detail` sent with each scan.")
+    image_detail: Literal["auto", "low", "high"] = Field(default="auto", description="Image `detail` sent with each scan.")
     request_timeout_s: float = Field(default=180.0, gt=0, description="Timeout of one API request attempt.")
     max_retries: int = Field(default=3, ge=0, le=10, description="Retries after a transient or invalid response.")
     request_params: dict[str, JsonValue] = Field(
