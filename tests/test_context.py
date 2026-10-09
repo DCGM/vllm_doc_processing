@@ -9,7 +9,7 @@ from vllm_doc_processing.config import build_config
 from vllm_doc_processing.context import build_context
 from vllm_doc_processing.images import build_inventory
 from vllm_doc_processing.llm import LLMClient
-from vllm_doc_processing.models import ScanObservation, ScanRecord, dump_json, load_json
+from vllm_doc_processing.models import BiblioField, ScanObservation, ScanRecord, dump_json, load_json
 from vllm_doc_processing.pipeline import observe_book
 
 TITLE = {
@@ -71,6 +71,32 @@ def test_context_is_bounded():
     assert long.count("\n- scan ") == 50  # recent scans capped by count
     assert max(len(line) for line in long.splitlines()) < 1000  # values and lists are capped
     assert "+3 more" in long
+
+
+def test_truncation_keeps_document_state_and_drops_least_important_first():
+    """A title page with many long bibliographic candidates must not push out pagination and chapter."""
+    crowded = {
+        **TITLE,
+        "bibliographic_candidates": [
+            {"field": f.value, "value": f"{f.value} {i} " + "x" * 90, "confidence": None, "notes": None}
+            for f in BiblioField for i in range(3)
+        ],
+    }
+    prior = [scan(0, crowded), scan(1, None), scan(2, text_page(13, "KAPITOLA I. Úvod")), scan(3, text_page(14))]
+    full = build_context(prior, recent_scans=5, max_chars=100_000)
+    assert len(full) > 4000 and "- manufacture_place:" in full
+
+    context = build_context(prior, recent_scans=5, max_chars=2000)
+    assert len(context) <= 2000
+    assert "Printed page numbers, latest: scan 3: 13; scan 4: 14." in context
+    assert 'Current chapter (latest headings): level 1 "KAPITOLA I. Úvod" (scan 3).' in context
+    assert "Unresolved: scan 2 not observed" in context
+    assert "- title: " in context and "- author: " in context  # most important fields kept
+    assert "- manufacture_place:" not in context and "Previous scans:" not in context
+
+    tight = build_context(prior, recent_scans=5, max_chars=400)
+    assert len(tight) <= 400 and "Bibliographic data: omitted (context limit)." in tight
+    assert "scan 4: 14" in tight and "KAPITOLA I. Úvod" in tight
 
 
 def test_mock_book_run_is_sequential_bounded_and_deterministic(tmp_path, caplog):

@@ -4,10 +4,12 @@ The summary is derived deterministically from the stored observations, which it 
 it is provisional (observations may be wrong) and is rebuilt from scratch for every scan.
 
 Bounding rule: every quoted value is cut to ``VALUE_CHARS``, every list to a fixed number of items
-(``BIBLIO_VALUES_PER_FIELD``, ``NUMBERED_SCANS``, ``IRREGULARITIES``, ``FAILED_SCANS``) and the
-previous-scan lines to ``recent_scans``. If the text is still longer than ``max_chars``, the oldest
-previous-scan lines are dropped first, then whole lines from the end, so the result never exceeds
-``max_chars``.
+(``BIBLIO_VALUES_PER_FIELD``, ``NUMBERED_SCANS``, ``HEADING_LEVELS``, ``IRREGULARITIES``,
+``FAILED_SCANS``) and the previous-scan lines to ``recent_scans``. Sections are ordered by priority:
+the current document state (page numbering, current chapter, unresolved points, TOC) first, then
+bibliographic data (fields in ``BIBLIO_PRIORITY`` order), then previous scans. If the text is longer
+than ``max_chars``, the oldest previous-scan lines are dropped first, then bibliographic lines from the
+least important field, then whole lines from the end, so the result never exceeds ``max_chars``.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ CONTEXT_VERSION = "1"
 VALUE_CHARS = 80
 BIBLIO_VALUES_PER_FIELD = 3
 NUMBERED_SCANS = 5
+HEADING_LEVELS = 4
 IRREGULARITIES = 2
 FAILED_SCANS = 5
 SINGLE_VALUED = {
@@ -33,7 +36,30 @@ SINGLE_VALUED = {
     BiblioField.PUBLICATION_DATE,
 }
 
+BIBLIO_PRIORITY = [
+    BiblioField.TITLE,
+    BiblioField.AUTHOR,
+    BiblioField.SUBTITLE,
+    BiblioField.PART_NAME,
+    BiblioField.PART_NUMBER,
+    BiblioField.EDITION,
+    BiblioField.PUBLICATION_DATE,
+    BiblioField.PUBLISHER,
+    BiblioField.PUBLICATION_PLACE,
+    BiblioField.SERIES_NAME,
+    BiblioField.SERIES_NUMBER,
+    BiblioField.EDITOR,
+    BiblioField.TRANSLATOR,
+    BiblioField.ILLUSTRATOR,
+    BiblioField.PHOTOGRAPHER,
+    BiblioField.MANUFACTURE_PUBLISHER,
+    BiblioField.MANUFACTURE_PLACE,
+]
+"""Order of bibliographic fields in the context; the last ones are dropped first when over budget."""
+assert set(BIBLIO_PRIORITY) == set(BiblioField)
+
 RECENT_HEADER = "Previous scans:"
+BIBLIO_OMITTED = "Bibliographic data: omitted (context limit)."
 
 
 def build_context(previous: Sequence[ScanRecord], *, recent_scans: int, max_chars: int) -> str | None:
@@ -41,22 +67,27 @@ def build_context(previous: Sequence[ScanRecord], *, recent_scans: int, max_char
     if not previous:
         return None
     observed = [(s.scan_index + 1, s.observation) for s in previous if s.observation is not None]
-    lines = [f'Scans 1-{previous[-1].scan_index + 1} so far; "scan N" is a scan position, not a page number.']
-    lines += _bibliography(observed)
-    lines += _numbering(observed)
-    lines += _chapter(observed)
-    lines += _toc(observed)
-    lines += _open_questions(previous, observed)
+    state = [f'Scans 1-{previous[-1].scan_index + 1} so far; "scan N" is a scan position, not a page number.']
+    state += _numbering(observed)
+    state += _chapter(observed)
+    state += _open_questions(previous, observed)
+    state += _toc(observed)
     recent = [_scan_line(s) for s in previous[-recent_scans:]] if recent_scans else []
-    return _fit(lines, recent, max_chars)
+    return _fit(state, _bibliography(observed), recent, max_chars)
 
 
-def _fit(lines: list[str], recent: list[str], max_chars: int) -> str:
+def _fit(state: list[str], biblio: list[str], recent: list[str], max_chars: int) -> str:
+    """Drop the oldest recent-scan lines, then the least important bibliographic lines, then cut the end."""
+
     def text() -> str:
-        return "\n".join(lines + ([RECENT_HEADER, *recent] if recent else []))
+        return "\n".join(state + biblio + ([RECENT_HEADER, *recent] if recent else []))
 
     while recent and len(text()) > max_chars:
         recent.pop(0)
+    while len(biblio) > 1 and len(text()) > max_chars:
+        biblio.pop()
+        if len(biblio) == 1:  # only the section header is left
+            biblio[0] = BIBLIO_OMITTED
     out = text()
     if len(out) > max_chars:
         out = out[: out.rfind("\n", 0, max_chars + 1)] if "\n" in out[: max_chars + 1] else out[:max_chars]
@@ -78,7 +109,7 @@ def _bibliography(observed: list[tuple[int, ScanObservation]]) -> list[str]:
     if not values:
         return ["Bibliographic data: none seen yet."]
     lines = ["Bibliographic data seen (field: value (scans)):"]
-    for field in BiblioField:  # fixed order
+    for field in BIBLIO_PRIORITY:
         if field not in values:
             continue
         items = list(values[field].items())
@@ -134,7 +165,8 @@ def _chapter(observed: list[tuple[int, ScanObservation]]) -> list[str]:
             stack[level] = f"level {h.level or '?'} {_q(h.text)} (scan {pos})"
     if not stack:
         return ["Current chapter: no heading seen yet."]
-    return ["Current chapter (latest headings): " + "; ".join(stack[k] for k in sorted(stack)) + "."]
+    shown = [stack[k] for k in sorted(stack)[:HEADING_LEVELS]]
+    return ["Current chapter (latest headings): " + "; ".join(shown) + "."]
 
 
 def _toc(observed: list[tuple[int, ScanObservation]]) -> list[str]:
