@@ -59,6 +59,12 @@ class Config(BaseModel):
     max_output_tokens: int | None = Field(
         default=4000, ge=1, description="Output token cap per request (includes reasoning tokens); None = no cap."
     )
+    context_recent_scans: int = Field(
+        default=5, ge=0, le=50, description="Earlier scans summarized one line each in the context of the next scan."
+    )
+    context_max_chars: int = Field(
+        default=2000, ge=200, description="Hard limit on the length of the earlier-scan context text."
+    )
     request_params: dict[str, JsonValue] = Field(
         default_factory=dict,
         description="Extra request body fields, e.g. temperature, max_completion_tokens, reasoning settings.",
