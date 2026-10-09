@@ -44,7 +44,7 @@ vllm-doc process --input /data/scanned-book --output /data/book.json \
 vllm-doc observe --input /data/scanned-book --provider openrouter --model '<vision-model-id>' \
   --scans <scan-id> <scan-id> > observations.jsonl     # or --max-pages N
 ```
-Annotates the selected scans **independently** (no context from other scans) with the observation prompt and prints one JSON line per scan, in scan order: `scan_id`, `scan_index`, `filename`, `model`, `prompt_version`, `observation` (a `ScanObservation`, or `null`), `error` and `calls` (every attempt as a `CallRecord`). Per-call log lines and a usage/cost summary go to stderr. It accepts `--input`, `--order-file`, `--config`, `--provider`, `--base-url`, `--model`; `max_pages` from a config file is ignored. Exit code `1` if any scan failed after retries. Paid: every selected scan is one or more requests. The prompt is described in [docs/PROMPTS.md](docs/PROMPTS.md).
+Annotates the selected scans **independently** (no context from other scans) with the observation prompt and prints one JSON line per scan, in scan order: `scan_id`, `scan_index`, `filename`, `model`, `prompt_version`, `observation` (a `ScanObservation`, or `null`), `error` and `calls` (every attempt as a `CallRecord`). Per-call log lines and a usage/cost summary go to stderr. It accepts `--input`, `--order-file`, `--config`, `--provider`, `--base-url`, `--model`; `max_pages` from a config file is ignored. With `--scans` only the selected images are matched and decoded, so other listed scans may be missing or corrupt; scan positions still come from the whole order file. Exit code `1` if any scan failed after retries. Paid: every selected scan is one or more requests. The prompt is described in [docs/PROMPTS.md](docs/PROMPTS.md).
 
 ### Configuration
 Precedence: **built-in defaults < `--config` JSON file < command-line flags**. The config file is a flat JSON object whose keys match the settings below; unknown keys are rejected so typos fail loudly. See [examples/config.example.json](examples/config.example.json).
@@ -61,7 +61,8 @@ Precedence: **built-in defaults < `--config` JSON file < command-line flags**. T
 | `image_detail` | no | `auto`; image `detail` hint sent with each scan (`auto`, `low`, `high`); `high` may help with small print at higher cost; providers other than OpenAI may ignore it |
 | `request_timeout_s` | no | `180`; timeout of one request attempt in seconds |
 | `max_retries` | no | `3`; retries after rate limits (429), timeouts/connection errors, 408/409/5xx and responses that fail schema validation |
-| `request_params` | no | `{}`; extra request body fields, e.g. `{"temperature": 0, "max_completion_tokens": 8000, "reasoning_effort": "low"}`; with OpenRouter also `provider` routing preferences. `model`, `messages`, `response_format`, `stream`, `n`, `tools`, `tool_choice` are rejected |
+| `max_output_tokens` | no | `4000`; output token cap of each request, sent as `max_completion_tokens` (openai) or `max_tokens` (openrouter); includes reasoning tokens, so raise it for high reasoning effort. A truncated answer is rejected and retried, so the cap bounds the cost of run-away output. `null` = no cap |
+| `request_params` | no | `{}`; extra request body fields, e.g. `{"temperature": 0, "reasoning_effort": "low"}`; with OpenRouter also `provider` routing preferences. `model`, `messages`, `response_format`, `stream`, `n`, `tools`, `tool_choice`, `max_tokens`, `max_completion_tokens` are rejected |
 
 ### Input scans
 - The order file lists image names without extensions, one per line, in physical scan order; surrounding whitespace and blank lines are ignored. Empty order files, duplicate names and names containing path separators are errors.

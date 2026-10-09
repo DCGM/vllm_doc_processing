@@ -25,7 +25,7 @@ from openai import APIConnectionError, APIResponseValidationError, APIStatusErro
 from openai.lib._pydantic import to_strict_json_schema
 from pydantic import BaseModel, ValidationError
 
-from .config import Config, require_api_key
+from .config import OUTPUT_LIMIT_PARAM, Config, require_api_key
 from .images import PreparedImage
 from .models import CallRecord, Stage
 
@@ -142,6 +142,9 @@ class LLMClient:
             )
         content.append({"type": "text", "text": user})
         extra_body = dict(self.config.request_params)
+        if self.config.max_output_tokens is not None:
+            # Bounds the cost of run-away output; a truncated answer is rejected and retried.
+            extra_body[OUTPUT_LIMIT_PARAM[self.config.provider]] = self.config.max_output_tokens
         if self.config.provider == "openrouter":
             # Route only to endpoints honouring every parameter, so json_schema is never silently dropped.
             extra_body["provider"] = {**extra_body.get("provider", {}), "require_parameters": True}

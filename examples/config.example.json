@@ -9,5 +9,6 @@
   "image_detail": "auto",
   "request_timeout_s": 180,
   "max_retries": 3,
+  "max_output_tokens": 4000,
   "request_params": {}
 }

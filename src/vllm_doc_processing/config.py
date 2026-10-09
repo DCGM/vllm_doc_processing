@@ -23,8 +23,14 @@ API_KEY_ENV: dict[str, str] = {
     "openai": "OPENAI_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
 }
-RESERVED_REQUEST_PARAMS = frozenset({"model", "messages", "response_format", "stream", "n", "tools", "tool_choice"})
+RESERVED_REQUEST_PARAMS = frozenset(
+    {"model", "messages", "response_format", "stream", "n", "tools", "tool_choice", "max_tokens", "max_completion_tokens"}
+)
 """Request fields set by the adapter itself; ``request_params`` must not override them."""
+OUTPUT_LIMIT_PARAM: dict[str, str] = {
+    "openai": "max_completion_tokens",  # OpenAI reasoning models reject max_tokens
+    "openrouter": "max_tokens",
+}
 
 
 class ConfigError(Exception):
@@ -50,6 +56,9 @@ class Config(BaseModel):
     image_detail: Literal["auto", "low", "high"] = Field(default="auto", description="Image `detail` sent with each scan.")
     request_timeout_s: float = Field(default=180.0, gt=0, description="Timeout of one API request attempt.")
     max_retries: int = Field(default=3, ge=0, le=10, description="Retries after a transient or invalid response.")
+    max_output_tokens: int | None = Field(
+        default=4000, ge=1, description="Output token cap per request (includes reasoning tokens); None = no cap."
+    )
     request_params: dict[str, JsonValue] = Field(
         default_factory=dict,
         description="Extra request body fields, e.g. temperature, max_completion_tokens, reasoning settings.",
@@ -66,7 +75,7 @@ class Config(BaseModel):
     def _check_request_params(self) -> Config:
         reserved = sorted(RESERVED_REQUEST_PARAMS & self.request_params.keys())
         if reserved:
-            raise ValueError(f"request_params must not set {reserved}; they are set by the tool")
+            raise ValueError(f"request_params must not set {reserved}; they are set by the tool (use max_output_tokens)")
         if "provider" in self.request_params and not (
             self.provider == "openrouter" and isinstance(self.request_params["provider"], dict)
         ):

@@ -90,7 +90,8 @@ def test_image_request_strict_schema_routing_and_usage():
     image_part, text_part = req["messages"][1]["content"]
     assert image_part["image_url"] == {"url": IMAGE.data_url(), "detail": "auto"}
     assert text_part == {"type": "text", "text": "Which side?"}
-    assert req["extra_body"] == {"temperature": 0, "provider": {"order": ["google"], "require_parameters": True}}
+    assert req["extra_body"] == {
+        "temperature": 0, "max_tokens": 4000, "provider": {"order": ["google"], "require_parameters": True}}
 
     call = result.call
     assert (call.stage, call.scan_id, call.provider, call.model, call.status) == (
@@ -102,13 +103,13 @@ def test_image_request_strict_schema_routing_and_usage():
 
 def test_text_only_request_on_openai():
     fake = FakeClient(completion('{"side": null, "note": "n/a"}', cost=None, provider=None))
-    client, _ = make_client(fake, provider="openai")
+    client, _ = make_client(fake, provider="openai", max_output_tokens=None)
     result = ask(client, image=None)
 
     assert result.value.note == "n/a"
     req = fake.requests[0]
     assert req["messages"][1]["content"] == [{"type": "text", "text": "Which side?"}]
-    assert req["extra_body"] == {}
+    assert req["extra_body"] == {}  # no output cap requested
     assert result.call.cost_usd is None and result.call.upstream_provider is None
 
 
@@ -195,6 +196,17 @@ def test_logs_and_errors_never_contain_keys_or_image_data(caplog):
 
 
 def test_request_params_cannot_override_adapter_fields():
-    for params, provider in (({"response_format": {"type": "text"}}, "openrouter"), ({"provider": {}}, "openai")):
+    for params, provider in (
+        ({"response_format": {"type": "text"}}, "openrouter"),
+        ({"provider": {}}, "openai"),
+        ({"max_completion_tokens": 100}, "openai"),  # use max_output_tokens
+    ):
         with pytest.raises(ConfigError, match="request_params"):
             build_config({"provider": provider, "model": "m", "request_params": params}, {})
+
+
+def test_output_cap_uses_provider_parameter_name():
+    fake = FakeClient(completion('{"side": null, "note": null}'))
+    client, _ = make_client(fake, provider="openai", max_output_tokens=1234)
+    ask(client)
+    assert fake.requests[0]["extra_body"] == {"max_completion_tokens": 1234}
