@@ -50,6 +50,47 @@ Sections, in priority order: the current document state — the latest printed n
 
 The observation system prompt already tells the model that the context is automatic, may be wrong and must not be copied into the observation; whether the context improves or degrades observations has not been measured yet.
 
+## Document-wide reconciliation (issue #7)
+`reconcile.reconcile_book` runs after all scans are observed and fills `resolved`; `scans[].observation` is never modified. The work is split so that the LLM does only what needs language understanding, and everything it returns is checked against the observations:
+
+| Step | Done by |
+|---|---|
+| Page type, side and subpages per scan | copied from the observation (`origin: observed`); not revised |
+| Printed page labels | observed numbers copied; **inferred** (`origin: inferred`) only on unnumbered pages strictly between two printed numbers of the same numeral system whose difference equals the number of pages between them (a spread counts as two pages). Nothing is extrapolated before the first or after the last number. A number disagreeing with both agreeing neighbours → `page_number_conflict` (kept as observed); a jump larger than the pages in between → `page_number_gap` (scans may be missing; nothing inferred); a non-increasing step → `page_number_sequence_break`. Roman front matter and arabic body are separate sequences. |
+| Bibliography: choose, merge and deduplicate forms | LLM; then each value must equal an observed candidate (ignoring case, spacing and trailing punctuation) or cite a scan with bibliographic candidates, else it is dropped (`ungrounded_value`). Values not observed literally in that field get `origin: inferred` and a `changes[]` entry. A second value for a single-valued field is dropped (`competing_values`). |
+| Chapter list: TOC entry ↔ heading matching, titles, levels | LLM; cited scans must hold TOC entries/headings, page references must be printed in those TOC entries, chapters citing neither are dropped. |
+| Hierarchy, start and end scans | code: parent = previous chapter of a lower level; start = heading scan, else the unique scan whose resolved label (observed or inferred) equals the TOC page reference; none → `unresolved_toc_reference` (start stays `null`), several → `ambiguous_toc_reference`, heading and TOC disagree → `toc_heading_mismatch` (heading wins). End = scan before the next chapter of the same or higher level (that scan itself if it is a spread), `null` when unknown or for the last chapter. Starts going backwards → `contradictory_order`. |
+| Other doubts | LLM `issues` → warnings with `detected_by: llm` |
+
+The prompt (`RECONCILE_SYSTEM`, version `reconcile`) is text-only and refers to scans by position. Its input lists the computed numbering and every scan with headings, TOC entries, bibliographic data or a change of page type; ordinary pages are omitted, values are never shortened. Example (the book of `tests/test_reconcile.py`):
+```text
+Book with 15 scans; "scan N" is the position in scanning order, not a page number.
+
+Printed page numbering (computed from the observations):
+- scans 4-6: roman IV-VI
+- scans 7-12: arabic 1-6
+- scans 14-15: arabic 9-10
+- page_number_conflict: scan 10 shows page number 31, but the numbers on scan 9 (3) and scan 11 (5) imply 4; kept as observed
+- page_number_gap: page numbers jump from 6 (scan 12) to 9 (scan 14) with 1 page(s) in between: scans may be missing or a number misread; no labels inferred
+
+Scans with headings, table-of-contents entries, bibliographic data or a change of page type (all other scans are not listed):
+scan 1: FrontCover; side unknown; no page number
+  title: "CESTY PO ŠUMAVĚ"
+scan 2: TitlePage; side unknown; no page number
+  title: "Cesty po Šumavě"
+  author: "Karel Klostermann"
+  publication_place: "V Praze"
+...
+scan 4: TableOfContents; side unknown; page IV
+  TOC entry level 1: "Úvod" -> "1"
+  TOC entry level 1: "Kapitola II. Na horách" -> "6"
+  TOC entry level 1: "Kapitola III. Domů" -> "40"
+...
+scan 7: NormalPage; side unknown; page 1
+  heading level 1: "KAPITOLA I. Úvod"
+```
+The answer is `{bibliography: [{field, value, source_scans, notes}], chapters: [{title, level, toc_scans, printed_page_reference, heading_scan, notes}], issues: [{code, message, scans}]}`, in one request with `reconcile_max_output_tokens`. If the input exceeds `reconcile_max_chars` the call fails **before** the request with a clear message; splitting a book into several requests is not implemented (a typical book's input is a few thousand characters, as only headings, TOC and title pages are listed). Observation `notes`, confidences and chapter subtitles/part numbers are not passed on. Bump `RECONCILE_PROMPT_NUMBER` when the prompt or the input format changes. Not measured on real books yet.
+
 ## Manual check (issue #5)
 Run 2026-10-09 with `vllm-doc observe` on 16 scans picked from 9 local digitized documents (not committed): title pages of a 1902 Czech monograph and a 1965 geophysics offprint in a series, journal covers, two bilingual TOC pages, a blank page, a nearly invisible mirrored show-through page, text pages with chapter headings and with printer's signature marks, a 17th-century Latin occasional print, and a fold-out map. No real two-page spreads were available, so spread handling is untested. Each scan was annotated independently (no context), via OpenRouter with default settings, prompt versions 1–3, `openai/gpt-4.1-mini` and `openai/gpt-5.4-mini`.
 

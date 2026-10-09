@@ -56,7 +56,7 @@
         "page_type": "Impressum",
         "side": "left",
         "bibliographic_candidates": [
-          {"field": "manufacture_publisher", "value": "Tiskárna Vzor", "confidence": 0.8},
+          {"field": "manufacture_publisher", "value": "TISKÁRNA VZOR", "confidence": 0.8},
           {"field": "manufacture_place", "value": "Brno", "confidence": 0.8},
           {"field": "edition", "value": "Vydání první", "confidence": 0.85}
         ],
@@ -125,7 +125,7 @@
       "publication_date": {"value": "1925", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000002"]},
       "publisher": [{"value": "Nakladatelství Příklad", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000002"]}],
       "publication_place": [{"value": "Praha", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000002"]}],
-      "manufacture_publisher": [{"value": "Tiskárna Vzor", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000003"]}],
+      "manufacture_publisher": [{"value": "Tiskárna Vzor", "origin": "inferred", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000003"]}],
       "manufacture_place": [{"value": "Brno", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000003"]}],
       "author": [{"value": "Jan Žlutický", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000001", "5b1f0c2e-7d4a-4e8b-9c3f-000000000002"]}],
       "illustrator": [{"value": "M. Řeháková", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000002"], "notes": "First name not printed."}]
@@ -135,18 +135,12 @@
       {
         "scan_id": "5b1f0c2e-7d4a-4e8b-9c3f-000000000002",
         "page_type": {"value": "TitlePage", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000002"]},
-        "side": {"value": "right", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000002"]},
-        "page_labels": [
-          {"label": "III", "numeric_value": 3, "numeral_system": "roman", "origin": "inferred", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"], "notes": "Unnumbered; counted back from 'v' on the TOC spread."}
-        ]
+        "side": {"value": "right", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000002"]}
       },
       {
         "scan_id": "5b1f0c2e-7d4a-4e8b-9c3f-000000000003",
         "page_type": {"value": "Impressum", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000003"]},
-        "side": {"value": "left", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000003"]},
-        "page_labels": [
-          {"label": "IV", "numeric_value": 4, "numeral_system": "roman", "origin": "inferred", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"]}
-        ]
+        "side": {"value": "left", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000003"]}
       },
       {
         "scan_id": "5b1f0c2e-7d4a-4e8b-9c3f-000000000004",
@@ -211,20 +205,27 @@
     ],
     "warnings": [
       {
-        "code": "toc_target_not_scanned",
-        "message": "TOC references pages 12 and 57, which are not among the scans.",
+        "code": "unresolved_toc_reference",
+        "message": "chapter 'U Černého jezera': no scan with page '12'; start unresolved",
         "detected_by": "check",
-        "field_path": "resolved.structure",
+        "field_path": "resolved.structure[2]",
+        "scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"]
+      },
+      {
+        "code": "unresolved_toc_reference",
+        "message": "chapter 'Návrat domů': no scan with page '57'; start unresolved",
+        "detected_by": "check",
+        "field_path": "resolved.structure[3]",
         "scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"]
       }
     ],
     "changes": [
       {
-        "field_path": "resolved.scans[1].page_labels",
-        "old_value": null,
-        "new_value": "III",
-        "reason": "Unnumbered title page; label inferred from the roman sequence starting 'v' on the TOC spread.",
-        "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"]
+        "field_path": "resolved.bibliography.manufacture_publisher[0]",
+        "old_value": ["TISKÁRNA VZOR"],
+        "new_value": "Tiskárna Vzor",
+        "reason": "Normal case for a name printed in capitals.",
+        "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000003"]
       }
     ]
   },
@@ -236,7 +237,7 @@
     "base_url": "https://openrouter.ai/api/v1",
     "vision_model": "<vision-model-id>",
     "postprocess_model": "<text-model-id>",
-    "prompt_versions": {"observe": "observe-v1", "reconcile": "reconcile-v1"},
+    "prompt_versions": {"observe": "3-65cfd190", "context": "1", "reconcile": "1-78f6039e"},
     "parameters": {"image_max_side": 2048, "context_recent_scans": 3},
     "calls": [
       {"call_id": "call-0001", "stage": "observe", "scan_id": "5b1f0c2e-7d4a-4e8b-9c3f-000000000001", "provider": "openrouter", "model": "<vision-model-id>", "status": "ok", "latency_s": 4.1, "prompt_tokens": 1500, "completion_tokens": 120, "cost_usd": 0.0012},

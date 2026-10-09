@@ -15,7 +15,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from types import SimpleNamespace
+from types import EllipsisType, SimpleNamespace
 from typing import Any, Generic, TypeVar
 
 from openai import APIConnectionError, APIResponseValidationError, APIStatusError, OpenAI
@@ -94,12 +94,15 @@ class LLMClient:
         user: str,
         image: PreparedImage | None = None,
         scan_id: str | None = None,
+        max_output_tokens: int | None | EllipsisType = ...,
     ) -> LLMResult[T]:
+        """``max_output_tokens`` overrides ``config.max_output_tokens`` (``None`` = no cap)."""
+        limit = self.config.max_output_tokens if max_output_tokens is ... else max_output_tokens
         try:
             schema = to_strict_json_schema(response_model)
         except Exception as exc:
             raise LLMError(f"cannot build a strict JSON schema for {response_model.__name__}: {exc}", []) from None
-        kwargs = self._build_request(response_model.__name__, schema, model, system, user, image)
+        kwargs = self._build_request(response_model.__name__, schema, model, system, user, image, limit)
 
         calls: list[CallRecord] = []
         for attempt in range(1, self.config.max_retries + 2):
@@ -133,7 +136,14 @@ class LLMClient:
         raise AssertionError("unreachable")
 
     def _build_request(
-        self, name: str, schema: dict[str, Any], model: str, system: str, user: str, image: PreparedImage | None
+        self,
+        name: str,
+        schema: dict[str, Any],
+        model: str,
+        system: str,
+        user: str,
+        image: PreparedImage | None,
+        max_output_tokens: int | None,
     ) -> dict[str, Any]:
         content: list[dict[str, Any]] = []
         if image is not None:
@@ -142,9 +152,9 @@ class LLMClient:
             )
         content.append({"type": "text", "text": user})
         extra_body = dict(self.config.request_params)
-        if self.config.max_output_tokens is not None:
+        if max_output_tokens is not None:
             # Bounds the cost of run-away output; a truncated answer is rejected and retried.
-            extra_body[OUTPUT_LIMIT_PARAM[self.config.provider]] = self.config.max_output_tokens
+            extra_body[OUTPUT_LIMIT_PARAM[self.config.provider]] = max_output_tokens
         if self.config.provider == "openrouter":
             # Route only to endpoints honouring every parameter, so json_schema is never silently dropped.
             extra_body["provider"] = {**extra_body.get("provider", {}), "require_parameters": True}

@@ -2,7 +2,7 @@
 
 Experimental **API-only vision-language model processing of digitized books**. A folder of ordered book scans is analyzed image by image using a vision model with context derived from earlier extracted pages. A final text LLM pass reconciles bibliographic metadata, page numbering, page types, sides, table of contents and chapter structure into a custom JSON.
 
-**Status: early implementation.** The output data model (`src/vllm_doc_processing/models.py`, issue #1) the CLI/configuration scaffold (issue #2) the scan inventory/image preparation (issue #3) the OpenAI/OpenRouter structured-output API adapter (issue #4) the single-scan annotation prompt (issue #5, `vllm-doc observe`) and sequential observation of a whole book with bounded context from earlier scans (issue #6, library function `pipeline.observe_book`, not yet wired to the CLI) exist; `vllm-doc process` can validate a run with `--dry-run` but does not process whole books yet. Start with the dependency-ordered [issues](https://github.com/DCGM/vllm_doc_processing/issues) (#1–#8 for MVP); code follows in separate PRs.
+**Status: early implementation.** The output data model (`src/vllm_doc_processing/models.py`, issue #1) the CLI/configuration scaffold (issue #2) the scan inventory/image preparation (issue #3) the OpenAI/OpenRouter structured-output API adapter (issue #4) the single-scan annotation prompt (issue #5, `vllm-doc observe`) and sequential observation of a whole book with bounded context from earlier scans (issue #6, library function `pipeline.observe_book`) and the document-wide reconciliation (issue #7, `reconcile.reconcile_book`) exist but are not yet wired to the CLI; `vllm-doc process` can validate a run with `--dry-run` but does not process whole books yet. Start with the dependency-ordered [issues](https://github.com/DCGM/vllm_doc_processing/issues) (#1–#8 for MVP); code follows in separate PRs.
 
 ## Scope
 - Input: directory of book images (one image per scan: single page or facing-page spread) plus an order file listing the image names without extensions, one per line, in physical scan order. Filenames (usually UUIDs) carry no order.
@@ -65,6 +65,8 @@ Precedence: **built-in defaults < `--config` JSON file < command-line flags**. T
 | `use_context` | no | `true`; send a bounded text summary of earlier scans with each scan; `false` observes every scan on its own (for comparing the effect of context) |
 | `context_recent_scans` | no | `5`; number of earlier scans summarized one line each in the text context sent with the next scan (0–50, see [docs/PROMPTS.md](docs/PROMPTS.md#context-from-earlier-scans-issue-6)) |
 | `context_max_chars` | no | `2000`; hard limit on the length of that context text (minimum 200); oldest scan lines are dropped first |
+| `reconcile_max_chars` | no | `100000`; longest allowed text input of the reconciliation request (minimum 1000). A longer book fails before the request with a clear error (splitting is not implemented); raise it if the postprocess model's context allows |
+| `reconcile_max_output_tokens` | no | `16000`; output token cap of the reconciliation request (replaces `max_output_tokens` there, since a long chapter list needs more); `null` = no cap |
 | `request_params` | no | `{}`; extra request body fields, e.g. `{"temperature": 0, "reasoning_effort": "low"}`; with OpenRouter also `provider` routing preferences. `model`, `messages`, `response_format`, `stream`, `n`, `tools`, `tool_choice`, `max_tokens`, `max_completion_tokens` are rejected |
 
 ### Input scans
