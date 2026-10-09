@@ -81,7 +81,12 @@ def build_config(file_values: dict[str, Any], cli_values: dict[str, Any]) -> Con
         raise ConfigError(
             "do not put API keys in the config file; set OPENAI_API_KEY or OPENROUTER_API_KEY in the environment"
         )
-    merged = {**file_values, **{k: v for k, v in cli_values.items() if v is not None}}
+    cli_given = {k: v for k, v in cli_values.items() if v is not None}
+    file_values = dict(file_values)
+    if file_values.get("provider") not in (None, cli_given.get("provider", file_values.get("provider"))):
+        # A base URL from the file belongs to the file's provider; never pair it with another provider's key.
+        file_values.pop("base_url", None)
+    merged = {**file_values, **cli_given}
     try:
         return Config.model_validate(merged)
     except ValidationError as exc:
@@ -90,8 +95,12 @@ def build_config(file_values: dict[str, Any], cli_values: dict[str, Any]) -> Con
         raise ConfigError(f"invalid configuration: {problems}") from None
 
 
+def api_key(config: Config) -> str | None:
+    return os.environ.get(config.api_key_env, "").strip() or None
+
+
 def require_api_key(config: Config) -> str:
-    key = os.environ.get(config.api_key_env, "").strip()
+    key = api_key(config)
     if not key:
         raise ConfigError(f"missing API key: set the {config.api_key_env} environment variable")
     return key

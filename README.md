@@ -23,7 +23,7 @@ vllm-doc process --input /data/scanned-book --output /data/book.json \
   --provider openrouter --model '<vision-model-id>' \
   --postprocess-model '<text-model-id>' --dry-run
 ```
-`--dry-run` validates configuration, credentials presence and paths, prints the effective (non-secret) settings and makes no API calls. Without `--dry-run` the command currently exits with an error: processing lands with issues #3–#8. Model names are intentionally not fixed until live benchmarking.
+`--dry-run` validates configuration and paths, prints the effective (non-secret) settings and makes no API calls; a missing API key is reported as a warning (`api_key_set: false`), so it also works without credentials. Without `--dry-run` the command currently exits with an error: processing lands with issues #3–#8. Model names are intentionally not fixed until live benchmarking.
 
 ### `vllm-doc process` options
 | Flag | Meaning |
@@ -48,7 +48,7 @@ Precedence: **built-in defaults < `--config` JSON file < command-line flags**. T
 | `postprocess_model` | no | same as `model` |
 | `base_url` | no | `https://api.openai.com/v1` (openai), `https://openrouter.ai/api/v1` (openrouter) |
 
-Credentials are read **only** from the environment: `OPENAI_API_KEY` for `openai`, `OPENROUTER_API_KEY` for `openrouter`; an `api_key` entry in the config file is an error. A custom `base_url` still uses the selected provider's key variable. Exit codes: `0` success, `2` invalid arguments, configuration or paths, `1` runtime failure.
+Credentials are read **only** from the environment: `OPENAI_API_KEY` for `openai`, `OPENROUTER_API_KEY` for `openrouter`; an `api_key` entry in the config file is an error. A custom `base_url` still uses the selected provider's key variable. If `--provider` overrides a different provider from the config file, the file's `base_url` is discarded (the new provider's default is used unless `--base-url` is also given), so a key is never sent to another provider's endpoint. Exit codes: `0` success, `2` invalid arguments, configuration or paths, `1` runtime failure.
 
 ## Development
 ```bash

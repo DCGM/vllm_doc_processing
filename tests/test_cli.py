@@ -63,7 +63,6 @@ def test_example_config_with_cli_override(book, monkeypatch, capsys):
         ({"provider": "openrouter", "model": "m", "modle": "x"}, [], "modle"),  # typo rejected
         ({"provider": "openrouter", "model": "m", "api_key": "sk-secret"}, [], "environment"),
         ({"provider": "openrouter", "model": "m", "postprocess_model": {"x": "sk-secret"}}, [], "postprocess_model"),
-        ({"provider": "openrouter", "model": "m"}, [], "OPENROUTER_API_KEY"),  # no key in env
     ],
 )
 def test_invalid_configuration_fails_without_leaking(book, tmp_path, capsys, file_values, extra, message):
@@ -84,3 +83,22 @@ def test_invalid_paths(book, monkeypatch, capsys):
     assert main(inside) == EXIT_CONFIG
     err = capsys.readouterr().err
     assert "input directory not found" in err and "order file not found" in err and "must not be written into" in err
+
+
+def test_provider_override_drops_file_base_url(book, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"provider": "openrouter", "model": "m", "base_url": "https://openrouter.ai/api/v1"}))
+    out = dry_run(capsys, args(book, "--config", str(config), "--provider", "openai"))
+    assert out["effective_base_url"] == "https://api.openai.com/v1"
+    out = dry_run(capsys, args(book, "--config", str(config), "--provider", "openai", "--base-url", "http://x/v1"))
+    assert out["effective_base_url"] == "http://x/v1"
+
+
+def test_missing_api_key_warns_in_dry_run_but_fails_real_run(book, capsys):
+    base = ["--provider", "openrouter", "--model", "m"]
+    out = dry_run(capsys, args(book, *base))
+    assert out["api_key_set"] is False
+    real = ["process", "--input", str(book), "--output", str(book.parent / "out.json"), *base]
+    assert main(real) == EXIT_CONFIG
+    assert "OPENROUTER_API_KEY" in capsys.readouterr().err
