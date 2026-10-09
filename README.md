@@ -7,7 +7,7 @@ Experimental **API-only vision-language model processing of digitized books**. A
 ## Scope
 - Input: directory of book images (one image per scan: single page or facing-page spread) plus an order file listing the image names without extensions, one per line, in physical scan order. Filenames (usually UUIDs) carry no order.
 - Provider: direct OpenAI or OpenRouter using OpenAI-compatible APIs; vision model configurable.
-- Output: versioned custom JSON with bibliography, per-scan annotations, printed numbering (separate from scan index), page sides/types, chapter hierarchy, evidence, reconciled values and request metrics.
+- Output: versioned custom JSON with bibliography, per-scan annotations, printed numbering (separate from scan index) and page labels in Czech NDK notation (`[1a]`, `[4],5`, comparable with MetaKat/Kramerius), page sides/types, chapter hierarchy, evidence, reconciled values and request metrics.
 - Processing: sequential per scan with bounded summary of previously extracted data, followed by a book-level consistency pass.
 - Optional *later*: small-model-to-large-model escalation, selective image revisits, MetaKat benchmark.
 

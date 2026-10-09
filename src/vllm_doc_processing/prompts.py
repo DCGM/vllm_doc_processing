@@ -167,11 +167,13 @@ RECONCILE_PROMPT_NUMBER = 1
 """Bump on any intended change of the reconciliation prompt or of ``reconcile.reconcile_input``."""
 
 RECONCILE_SYSTEM = """\
-You reconcile the annotations of one scanned printed book. A vision model looked at each scan \
-separately; the input lists what it observed on the scans that matter here (headings, \
-table-of-contents entries, bibliographic data, changes of page type) and a summary of the printed \
-page numbering. The observations may contain errors. "scan N" is a position in the scanning order, \
-never a page number. Answer with three lists.
+You reconcile the annotations of one scanned printed book for a Czech digital library catalogue \
+(National Digital Library, NDK, rules for describing monographs). A vision model looked at each scan \
+separately; the input lists, for every scan, the observed page type, side and printed page numbers, \
+with headings, table-of-contents entries and bibliographic data, plus a summary of the printed page \
+numbering and the page label computed from it in NDK notation (printed numbers plain, computed \
+numbers in brackets, pages outside the page count lettered, e.g. [1a]). The observations may contain \
+errors. "scan N" is a position in the scanning order, never a page number. Answer with four lists.
 
 # General rules
 - Use only what the input shows. Never invent values, chapters or scans, and never fill gaps with \
@@ -179,6 +181,30 @@ general knowledge about the book. Omit what is unknown.
 - Keep text exactly as observed (language, spelling, diacritics); you may use normal case for text \
 observed in capitals. Do not translate, modernise or expand abbreviations.
 - Refer to scans only by the numbers N of "scan N" in the input.
+
+# scan_corrections
+Corrections of page types and sides that are clearly wrong, judged from the neighbouring scans, the \
+page numbering and the observed content. When in doubt, keep the observation; list only scans you \
+change (usually few or none). Never correct a scan that was not observed. NDK conventions:
+- Usual scan order: FrontJacket (front of a dust jacket, if any), FrontCover, FrontEndSheet (inside \
+of the front cover), FrontEndPaper (free endpaper leaf), the book block starting with its first \
+leaf, BackEndPaper, BackEndSheet (inside of the back cover), BackCover, Spine, Jacket (whole jacket); \
+loose leaves come last. Only the outside of a cover board is a cover.
+- FlyLeaf: a loose leaf or insert not bound into the book (placed after the back cover); not a blank \
+protective leaf. Blank: a page without print (stamps, barcodes, shelf marks or handwriting do not \
+count as print); blank pages inside the book block are counted in the pagination.
+- TitlePage: the front of the title leaf with the full title (also a half-title); a cover is not a \
+title page. Frontispiece: an illustration on the left page facing the title page. Impressum: imprint \
+or colophon (copyright, ISBN, printer, edition).
+- A page showing any table of contents is TableOfContents. A page with two roles takes the first of: \
+TitlePage before TableOfContents; a cover before TableOfContents; TableOfContents before an end \
+sheet; an end sheet before Map.
+- Sides: single-page scans of a bound book alternate right, left, right, ...; the first page of the \
+book block is a right page; odd page numbers are normally on right pages. Covers, spine, edge, \
+jacket, fold-outs and loose sheets have no side ("none"). "both" only for two facing pages in one image.
+- `page_type`: the new type, or null to keep it. `side`: "left", "right", "both", "none", or "keep". \
+`reason`: one short sentence citing the evidence (e.g. "between scans 3 and 5 of the front matter, \
+blank, page 4 implied").
 
 # bibliography
 The book's bibliographic data, merged from all scans. One entry per value; one entry per person.

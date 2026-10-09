@@ -2,13 +2,13 @@
 
 Work is split between code and one text-only LLM request (see docs/PROMPTS.md):
 
-* deterministic: page type and side per scan (copied from the observation), page-number sequences
-  (observed labels, labels inferred between two agreeing printed numbers, conflicts, gaps), mapping
-  TOC page references to scans, chapter hierarchy and bounds, and every invariant check;
-* LLM: the merged bibliography, the chapter list (which TOC entry and heading belong together, titles,
-  levels) and free-text doubts. Its answer refers to scans by position and is checked against the
-  observations: unknown scans, values not grounded in any observation and references not printed in a
-  TOC are dropped with a warning, and values that differ from what was observed are logged in ``changes``.
+* LLM: corrections of clearly wrong page types and sides, the merged bibliography, the chapter list
+  (which TOC entry and heading belong together, titles, levels) and free-text doubts;
+* deterministic: everything else -- page labels in Czech NDK notation (``pagination``), mapping TOC
+  page references to scans, chapter hierarchy and bounds, and every check of the LLM answer against
+  the observations: unknown scans, values not grounded in any observation and references not printed
+  in a TOC are dropped with a warning; resolved values that differ from the observations are logged in
+  ``changes``.
 
 Observations are never modified. Inputs longer than ``reconcile_max_chars`` fail before any request
 (no chunking yet).
@@ -19,8 +19,8 @@ from __future__ import annotations
 import json
 import logging
 import re
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Literal
 
 from pydantic import Field
 
@@ -31,10 +31,7 @@ from .models import (
     BiblioField,
     Bibliography,
     Claim,
-    LeafSide,
-    PageLabel,
     PageType,
-    PrintedNumber,
     ReconciliationChange,
     ReconciliationWarning,
     ResolvedBook,
@@ -46,6 +43,7 @@ from .models import (
     StrictModel,
     StructureNode,
 )
+from .pagination import Pagination, paginate, roman_value
 from .prompts import PROMPT_VERSIONS, RECONCILE_SYSTEM
 
 log = logging.getLogger(__name__)
@@ -56,6 +54,13 @@ class ReconcileError(Exception):
 
 
 # --- LLM response contract (scan numbers are 1-based positions, as in the input text) ------------
+
+
+class ScanCorrection(StrictModel):
+    scan: int
+    page_type: PageType | None = Field(description="New page type, or null to keep it.")
+    side: Literal["keep", "left", "right", "both", "none"] = Field(description="'none' = not applicable/unknown.")
+    reason: str = Field(min_length=1)
 
 
 class BiblioValue(StrictModel):
@@ -81,6 +86,7 @@ class Issue(StrictModel):
 
 
 class ReconcileResponse(StrictModel):
+    scan_corrections: list[ScanCorrection]
     bibliography: list[BiblioValue]
     chapters: list[Chapter]
     issues: list[Issue]
@@ -97,8 +103,7 @@ def reconcile_book(client: LLMClient, book: AnnotatedBook) -> AnnotatedBook:
     """
     config = client.config
     book = book.model_copy(deep=True)
-    pagination = _pagination(book.scans)
-    text = reconcile_input(book.scans, pagination)
+    text = reconcile_input(book.scans, _paginate(book.scans, [_observed_scan(s) for s in book.scans]))
     if len(text) > config.reconcile_max_chars:
         raise ReconcileError(
             f"reconciliation input has {len(text)} characters, more than reconcile_max_chars="
@@ -117,24 +122,31 @@ def reconcile_book(client: LLMClient, book: AnnotatedBook) -> AnnotatedBook:
     )
     book.run.calls += result.calls
     book.run.refresh_totals()
-    book.resolved = _resolve(book.scans, pagination, result.value)
+    book.resolved = _resolve(book.scans, result.value)
     book.run.finished_at = datetime.now(UTC)
     r = book.resolved
     log.info(
-        "reconcile input_chars=%d chapters=%d inferred_labels=%d warnings=%d changes=%d",
+        "reconcile input_chars=%d corrections=%d chapters=%d unlabelled_scans=%d warnings=%d changes=%d",
         len(text),
+        sum(c.field_path.startswith("resolved.scans[") for c in r.changes),
         len(r.structure),
-        sum(label.origin == "inferred" for s in r.scans for label in s.page_labels),
+        sum(s.page_number is None for s in r.scans),
         len(r.warnings),
         len(r.changes),
     )
     return book
 
 
-def _resolve(scans: list[ScanRecord], pagination: Pagination, response: ReconcileResponse) -> ResolvedBook:
-    out = ResolvedBook(warnings=list(pagination.warnings))
-    out.scans = [_resolved_scan(s, pagination.labels[s.scan_index]) for s in scans]
+def _resolve(scans: list[ScanRecord], response: ReconcileResponse) -> ResolvedBook:
+    out = ResolvedBook()
     refs = _RefChecker(scans, out.warnings)
+    out.scans = [_observed_scan(s) for s in scans]
+    _apply_corrections(scans, out, response.scan_corrections, refs)
+    pagination = _paginate(scans, out.scans)
+    for s, r in zip(scans, out.scans, strict=True):
+        r.page_labels = pagination.labels[s.scan_index]
+        r.page_number = pagination.page_number(s.scan_index)
+    out.warnings += pagination.warnings
     out.bibliography = _bibliography(scans, response.bibliography, refs, out)
     out.structure = _structure(scans, out.scans, response.chapters, refs, out)
     for issue in response.issues:
@@ -149,10 +161,20 @@ def _resolve(scans: list[ScanRecord], pagination: Pagination, response: Reconcil
     return out
 
 
-def _resolved_scan(scan: ScanRecord, labels: list[PageLabel]) -> ResolvedScan:
+def _paginate(scans: list[ScanRecord], resolved: list[ResolvedScan]) -> Pagination:
+    return paginate(
+        scans,
+        [r.page_type.value if r.page_type else None for r in resolved],
+        [r.side.value if r.side else None for r in resolved],
+        [{sp.side: sp.page_type.value if sp.page_type else None for sp in r.subpages} for r in resolved],
+    )
+
+
+def _observed_scan(scan: ScanRecord) -> ResolvedScan:
+    """Page type, side and subpages as observed (labels are added later)."""
     obs = scan.observation
     if obs is None:
-        return ResolvedScan(scan_id=scan.scan_id, page_labels=labels)
+        return ResolvedScan(scan_id=scan.scan_id)
     src = [scan.scan_id]
     return ResolvedScan(
         scan_id=scan.scan_id,
@@ -169,178 +191,47 @@ def _resolved_scan(scan: ScanRecord, labels: list[PageLabel]) -> ResolvedScan:
             )
             for sub in obs.subpages
         ],
-        page_labels=labels,
     )
 
 
-# --- Page numbering ----------------------------------------------------------------------------
-
-
-@dataclass
-class _Anchor:
-    k: int  # page ordinal: pages counted over all scans, a spread counts as two
-    scan: int  # scan_index
-    side: LeafSide | None
-    system: str
-    value: int
-    label: str
-
-    @property
-    def offset(self) -> int:
-        return self.value - self.k
-
-
-@dataclass
-class Pagination:
-    labels: dict[int, list[PageLabel]]
-    """Observed and inferred labels per scan_index."""
-    runs: list[str] = field(default_factory=list)
-    warnings: list[ReconciliationWarning] = field(default_factory=list)
-
-
-def _pagination(scans: list[ScanRecord]) -> Pagination:
-    """Observed labels, plus labels inferred on unnumbered pages strictly between two printed numbers of
-    the same numeral system whose difference equals the number of pages between them. Nothing is
-    extrapolated before the first or after the last printed number; disagreements become warnings."""
-    labels: dict[int, list[PageLabel]] = {s.scan_index: [] for s in scans}
-    pages: list[tuple[int, LeafSide | None, list[PrintedNumber]]] = []  # (scan_index, side, numbers)
-    for s in scans:
-        obs = s.observation
-        for n in obs.printed_numbers if obs else []:
-            labels[s.scan_index].append(
-                PageLabel(
-                    side=n.side,
-                    label=n.normalized or n.raw,
-                    numeric_value=n.numeric_value,
-                    numeral_system=n.numeral_system,
-                    source_scan_ids=[s.scan_id],
-                    confidence=n.confidence,
+def _apply_corrections(
+    scans: list[ScanRecord], out: ResolvedBook, corrections: list[ScanCorrection], refs: _RefChecker
+) -> None:
+    """Apply the LLM's page type/side corrections to observed scans (first correction per scan wins)."""
+    done: set[int] = set()
+    for c in corrections:
+        ids = refs.ids([c.scan], "scan correction")
+        if not ids or c.scan in done:
+            continue
+        done.add(c.scan)
+        i, scan_id = c.scan - 1, ids[0]
+        r, path = out.scans[i], f"resolved.scans[{c.scan - 1}]"
+        if scans[i].observation is None:
+            out.warnings.append(
+                ReconciliationWarning(
+                    code="correction_of_unobserved_scan",
+                    message=f"scan {c.scan} was not observed; correction ignored",
+                    detected_by="check",
+                    field_path=path,
+                    scan_ids=ids,
                 )
             )
-        if obs is not None and obs.side == "both":
-            unsided = [n for n in obs.printed_numbers if n.side is None]  # page unknown: blocks both pages
-            pages += [(s.scan_index, side, [n for n in obs.printed_numbers if n.side == side] + unsided)
-                      for side in ("left", "right")]
-        else:
-            side = obs.side if obs is not None and obs.side in ("left", "right") else None
-            pages.append((s.scan_index, side, list(obs.printed_numbers) if obs else []))
-
-    anchors = [
-        _Anchor(k, scan, side, nums[0].numeral_system, nums[0].numeric_value, nums[0].normalized or nums[0].raw)
-        for k, (scan, side, nums) in enumerate(pages)
-        if len(nums) == 1 and nums[0].numeric_value is not None and nums[0].numeral_system in ("arabic", "roman")
-    ]
-    result = Pagination(labels)
-    pos = {s.scan_index: s.scan_index + 1 for s in scans}
-    ids = {s.scan_index: s.scan_id for s in scans}
-
-    def warn(code: str, message: str, scan_indexes: list[int]) -> None:
-        result.warnings.append(
-            ReconciliationWarning(
-                code=code,
-                message=message,
-                detected_by="check",
-                field_path=f"resolved.scans[{scan_indexes[len(scan_indexes) // 2]}].page_labels",
-                scan_ids=list(dict.fromkeys(ids[i] for i in scan_indexes)),
-            )
-        )
-
-    outliers = set()
-    for p, a, n in zip(anchors, anchors[1:], anchors[2:], strict=False):
-        if p.system == a.system == n.system and p.offset == n.offset != a.offset:
-            outliers.add(a.k)
-            expected = _format(a.k + p.offset, a.system, p.label)
-            warn(
-                "page_number_conflict",
-                f"scan {pos[a.scan]} shows page number {a.label}, but the numbers on scan {pos[p.scan]} "
-                f"({p.label}) and scan {pos[n.scan]} ({n.label}) imply {expected}; kept as observed",
-                [p.scan, a.scan, n.scan],
-            )
-    good = [a for a in anchors if a.k not in outliers]
-    run = good[:1]
-    for p, n in zip(good, good[1:], strict=False):
-        between, step = n.k - p.k, n.value - p.value
-        consistent = p.system == n.system and step == between
-        if consistent:
-            for k in range(p.k + 1, n.k):
-                scan, side, nums = pages[k]
-                if not nums:
-                    labels[scan].append(
-                        PageLabel(
-                            side=side,
-                            label=_format(k + p.offset, p.system, p.label),
-                            numeric_value=k + p.offset,
-                            numeral_system=p.system,
-                            origin="inferred",
-                            source_scan_ids=list(dict.fromkeys([ids[p.scan], ids[n.scan]])),
-                        )
-                    )
-            run.append(n)
             continue
-        result.runs.append(_run_line(run, pos))
-        run = [n]
-        where = f"from {p.label} (scan {pos[p.scan]}) to {n.label} (scan {pos[n.scan]})"
-        if p.system != n.system:
-            pass  # e.g. roman front matter followed by arabic body
-        elif step <= 0:
-            warn("page_number_sequence_break", f"page numbers do not increase {where}", [p.scan, n.scan])
-        elif step > between:
-            warn(
-                "page_number_gap",
-                f"page numbers jump {where} with {between - 1} page(s) in between: scans may be missing "
-                "or a number misread; no labels inferred",
-                [p.scan, n.scan],
-            )
-        # 0 < step < between: unnumbered extra leaves (e.g. plates); nothing inferred, nothing to flag
-    if run:
-        result.runs.append(_run_line(run, pos))
-    return result
-
-
-def _run_line(run: list[_Anchor], pos: dict[int, int]) -> str:
-    first, last = run[0], run[-1]
-    if first is last:
-        return f"- scan {pos[first.scan]}: {first.system} {first.label}"
-    return f"- scans {pos[first.scan]}-{pos[last.scan]}: {first.system} {first.label}-{last.label}"
-
-
-_ROMAN = [(1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"), (90, "XC"),
-          (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")]
-
-
-def _to_roman(value: int) -> str:
-    out = ""
-    for v, s in _ROMAN:
-        while value >= v:
-            out, value = out + s, value - v
-    return out
-
-
-def _roman_value(text: str) -> int | None:
-    text, value, i = text.upper(), 0, 0
-    for v, s in _ROMAN:
-        while text.startswith(s, i):
-            value, i = value + v, i + len(s)
-    return value if text and i == len(text) and _to_roman(value) == text else None
-
-
-def _format(value: int, system: str, like: str) -> str:
-    if system != "roman":
-        return str(value)
-    roman = _to_roman(value) or str(value)
-    return roman.lower() if like.islower() else roman
-
-
-def _parse_reference(ref: str) -> tuple[str, int] | None:
-    """Leading page number of a printed TOC reference ("17", "[xii]", "17-20"); None if there is none."""
-    m = re.match(r"\W*([0-9]+|[ivxlcdm]+|[IVXLCDM]+)\b", ref)
-    if not m:
-        return None
-    token = m.group(1)
-    if token.isdigit():
-        return "arabic", int(token)
-    value = _roman_value(token)
-    return ("roman", value) if value else None
+        old_type = r.page_type.value if r.page_type else None
+        if c.page_type is not None and c.page_type != old_type:
+            r.page_type = Claim[PageType](value=c.page_type, origin="inferred", source_scan_ids=ids, notes=c.reason)
+            out.changes.append(ReconciliationChange(field_path=path + ".page_type", old_value=old_type,
+                                                    new_value=c.page_type.value, reason=c.reason,
+                                                    source_scan_ids=ids))
+        old_side = r.side.value if r.side else None
+        new_side = None if c.side == "none" else c.side
+        if c.side != "keep" and new_side != old_side:
+            r.side = Claim[ScanSide](value=new_side, origin="inferred", source_scan_ids=ids, notes=c.reason) \
+                if new_side else None
+            if new_side != "both":
+                r.subpages = []
+            out.changes.append(ReconciliationChange(field_path=path + ".side", old_value=old_side,
+                                                    new_value=new_side, reason=c.reason, source_scan_ids=ids))
 
 
 # --- Input text --------------------------------------------------------------------------------
@@ -351,32 +242,31 @@ def _q(text: str) -> str:
 
 
 def reconcile_input(scans: list[ScanRecord], pagination: Pagination) -> str:
-    """Compact text given to the LLM: numbering summary plus every scan with headings, TOC entries,
-    bibliographic candidates or a change of page type. Values are never shortened."""
+    """Compact text given to the LLM: numbering summary, then one line per scan (type, side, printed
+    numbers, computed NDK label) with headings, TOC entries and bibliographic data indented below.
+    Values are never shortened."""
     lines = [f'Book with {len(scans)} scans; "scan N" is the position in scanning order, not a page number.']
-    failed = [str(s.scan_index + 1) for s in scans if s.observation is None]
-    if failed:
-        lines.append(f"Not observed (request failed): scan {', '.join(failed)}.")
     lines += ["", "Printed page numbering (computed from the observations):"]
     lines += pagination.runs or ["- no page numbers observed"]
     lines += [f"- {w.code}: {w.message}" for w in pagination.warnings]
-    lines += ["", "Scans with headings, table-of-contents entries, bibliographic data or a change of page type "
-              "(all other scans are not listed):"]
-    previous_type: object = None
+    lines += ["", "Scans (type; side; printed page numbers; computed NDK page label):"]
     for s in scans:
-        obs = s.observation
-        if obs is None:
-            continue
-        if obs.headings or obs.toc_entries or obs.bibliographic_candidates or obs.page_type != previous_type:
-            lines += _scan_lines(s.scan_index + 1, obs)
-        previous_type = obs.page_type
+        label = pagination.page_number(s.scan_index) or "unresolved"
+        if s.observation is None:
+            lines.append(f"scan {s.scan_index + 1}: not observed (request failed); label {label}")
+        else:
+            lines += _scan_lines(s.scan_index + 1, s.observation, label)
     return "\n".join(lines)
 
 
-def _scan_lines(position: int, obs: ScanObservation) -> list[str]:
-    parts = [obs.page_type.value if obs.page_type else "page type unknown", obs.side or "side unknown"]
-    numbers = [f"{n.normalized or n.raw}{f' ({n.side})' if n.side else ''}" for n in obs.printed_numbers]
-    parts.append("page " + ", ".join(numbers) if numbers else "no page number")
+def _scan_lines(position: int, obs: ScanObservation, label: str) -> list[str]:
+    side = obs.side or "side unknown"
+    if obs.subpages:
+        side += " (" + ", ".join(f"{s.side} {s.page_type.value if s.page_type else '?'}" for s in obs.subpages) + ")"
+    parts = [obs.page_type.value if obs.page_type else "page type unknown", side]
+    numbers = [f"{n.raw}{f' ({n.side})' if n.side else ''}" for n in obs.printed_numbers]
+    parts.append("printed " + ", ".join(numbers) if numbers else "no printed number")
+    parts.append(f"label {label}")
     lines = [f"scan {position}: " + "; ".join(parts)]
     lines += [f"  heading level {h.level or '?'}: {_q(h.text)}" for h in obs.headings]
     lines += [
@@ -386,6 +276,18 @@ def _scan_lines(position: int, obs: ScanObservation) -> list[str]:
     ]
     lines += [f"  {c.field.value}: {_q(c.value)}" for c in obs.bibliographic_candidates]
     return lines
+
+
+def _parse_reference(ref: str) -> tuple[str, int] | None:
+    """Leading page number of a printed TOC reference ("17", "[xii]", "17-20"); None if there is none."""
+    m = re.match(r"\W*([0-9]+|[ivxlcdm]+|[IVXLCDM]+)\b", ref)
+    if not m:
+        return None
+    token = m.group(1)
+    if token.isdigit():
+        return "arabic", int(token)
+    value = roman_value(token)
+    return ("roman", value) if value else None
 
 
 # --- Checking the LLM answer -------------------------------------------------------------------
@@ -586,11 +488,11 @@ def _structure(
             )
         )
 
-    _bounds(nodes, scans, index, warn)
+    _bounds(nodes, resolved_scans, index, warn)
     return nodes
 
 
-def _bounds(nodes: list[StructureNode], scans: list[ScanRecord], index: dict[str, int], warn) -> None:
+def _bounds(nodes: list[StructureNode], scans: list[ResolvedScan], index: dict[str, int], warn) -> None:
     """End = the scan before the next chapter of the same or a higher level (that scan itself if it is a
     spread or the same scan); unknown when that start is unknown or there is no such chapter."""
     seen: dict[tuple[str, str | None], str] = {}
@@ -619,7 +521,7 @@ def _bounds(nodes: list[StructureNode], scans: list[ScanRecord], index: dict[str
         start, end = index[node.start_scan_id], index[nxt.start_scan_id]
         if end < start:
             continue
-        obs = scans[end].observation
-        if end > start and not (obs and obs.side == "both"):
+        side = scans[end].side
+        if end > start and not (side and side.value == "both"):
             end -= 1
         node.end_scan_id = scans[end].scan_id

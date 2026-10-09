@@ -131,16 +131,25 @@
       "illustrator": [{"value": "M. Řeháková", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000002"], "notes": "First name not printed."}]
     },
     "scans": [
-      {"scan_id": "5b1f0c2e-7d4a-4e8b-9c3f-000000000001", "page_type": {"value": "FrontCover", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000001"]}},
+      {
+        "scan_id": "5b1f0c2e-7d4a-4e8b-9c3f-000000000001",
+        "page_type": {"value": "FrontCover", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000001"]},
+        "page_labels": [{"label": "[Ia]", "origin": "inferred", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"]}],
+        "page_number": "[Ia]"
+      },
       {
         "scan_id": "5b1f0c2e-7d4a-4e8b-9c3f-000000000002",
         "page_type": {"value": "TitlePage", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000002"]},
-        "side": {"value": "right", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000002"]}
+        "side": {"value": "right", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000002"]},
+        "page_labels": [{"label": "[III]", "numeric_value": 3, "numeral_system": "roman", "origin": "inferred", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"]}],
+        "page_number": "[III]"
       },
       {
         "scan_id": "5b1f0c2e-7d4a-4e8b-9c3f-000000000003",
         "page_type": {"value": "Impressum", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000003"]},
-        "side": {"value": "left", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000003"]}
+        "side": {"value": "left", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000003"]},
+        "page_labels": [{"label": "[IV]", "numeric_value": 4, "numeral_system": "roman", "origin": "inferred", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"]}],
+        "page_number": "[IV]"
       },
       {
         "scan_id": "5b1f0c2e-7d4a-4e8b-9c3f-000000000004",
@@ -153,7 +162,8 @@
         "page_labels": [
           {"side": "left", "label": "V", "numeric_value": 5, "numeral_system": "roman", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"]},
           {"side": "right", "label": "VI", "numeric_value": 6, "numeral_system": "roman", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000004"]}
-        ]
+        ],
+        "page_number": "V,VI"
       },
       {
         "scan_id": "5b1f0c2e-7d4a-4e8b-9c3f-000000000005",
@@ -162,7 +172,8 @@
         "page_labels": [
           {"side": "left", "label": "1", "numeric_value": 1, "numeral_system": "arabic", "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000005"]},
           {"side": "right", "label": "2", "numeral_system": "arabic", "numeric_value": 2, "source_scan_ids": ["5b1f0c2e-7d4a-4e8b-9c3f-000000000005"]}
-        ]
+        ],
+        "page_number": "1,2"
       }
     ],
     "structure": [

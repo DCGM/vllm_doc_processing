@@ -234,10 +234,14 @@ class Bibliography(StrictModel):
 
 
 class PageLabel(StrictModel):
-    """Resolved printed page number of one page of a scan (observed or inferred)."""
+    """Resolved page number of one page of a scan in Czech NDK notation (see docs/OUTPUT_SCHEMA.md).
+
+    Printed numbers are plain (``12``, ``XII``); numbers that are not printed are in brackets: counted
+    pages ``[12]``, pages outside the count ``[12a]`` (lettered after the preceding page number).
+    """
 
     side: LeafSide | None = None
-    label: str = Field(min_length=1, description="Normalized label, e.g. '12', 'XII'.")
+    label: str = Field(min_length=1, description="NDK notation, e.g. '12', 'XII', '[13]', '[1a]', '[26b]'.")
     numeric_value: int | None = Field(default=None, ge=0)
     numeral_system: NumeralSystem | None = None
     origin: Origin = "observed"
@@ -259,6 +263,11 @@ class ResolvedScan(StrictModel):
     side: Claim[ScanSide] | None = None
     subpages: list[ResolvedSubpage] = Field(default_factory=list)
     page_labels: list[PageLabel] = Field(default_factory=list)
+    page_number: str | None = Field(
+        default=None,
+        description="NDK page label of the whole scan (METS ORDERLABEL, MetaKat pageNumber): the labels of its "
+        "pages joined by ',', e.g. '5', '[1a]', '[4],5'; None if any page is unresolved.",
+    )
 
     @model_validator(mode="after")
     def _check_subpages(self) -> ResolvedScan:
@@ -267,6 +276,8 @@ class ResolvedScan(StrictModel):
             raise ValueError("subpages must have distinct sides")
         if self.subpages and (self.side is None or self.side.value != "both"):
             raise ValueError("subpages are only allowed on a scan resolved as side='both'")
+        if self.page_number is not None and self.page_number != ",".join(p.label for p in self.page_labels):
+            raise ValueError("page_number must equal the page labels joined by ','")
         return self
 
 
