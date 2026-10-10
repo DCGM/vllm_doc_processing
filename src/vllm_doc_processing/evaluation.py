@@ -326,12 +326,14 @@ def document_check(
     """Whether document-level results (bibliography, structure) of ``pred`` may be scored for this book.
 
     Requires a prediction of the whole book (as many scans as the book has, including every reference
-    scan) and no image hash mismatch. ``hashes_verified`` is false when hashes are missing on either side.
+    scan) and no image hash mismatch. ``hashes_verified`` requires all ``scan_count`` image hashes
+    to be present on both sides and identical; partial gold manifests are never fully hash-verified.
     """
     if pred is None:
         return {"book_id": book_id, "compatible": False, "reason": "no prediction"}
     missing = sorted(set(ref_hashes) - pred.scans.keys())
     pairs = [(h, pred.scans[i].image_sha256) for i, h in ref_hashes.items() if i in pred.scans]
+    hashes_checked = sum(bool(a and b) for a, b in pairs)
     mismatches = sum(bool(a and b and a != b) for a, b in pairs)
     if mismatches:
         reason = "image hash mismatch"
@@ -349,7 +351,12 @@ def document_check(
         "prediction_scans": len(pred.scans),
         "missing_reference_scans": len(missing),
         "hash_mismatches": mismatches,
-        "hashes_verified": bool(pairs) and all(a and b for a, b in pairs) and not missing,
+        "hashes_checked": hashes_checked,
+        "hashes_total": scan_count,
+        "hashes_verified": (
+            reason is None and len(ref_hashes) == scan_count
+            and hashes_checked == scan_count and mismatches == 0
+        ),
     }
 
 
@@ -601,6 +608,7 @@ def to_markdown(report: dict[str, Any]) -> str:
             state = "scored" if d["compatible"] else f"not scored ({d['reason']})"
             out.append(
                 f"- document level of `{d['book_id']}`: {state}; scans {d['prediction_scans']}/{d['book_scans']}, "
+                f"hashes checked {d['hashes_checked']}/{d['hashes_total']}, "
                 f"hash mismatches {d['hash_mismatches']}, hashes verified {d['hashes_verified']}"
             )
         out += [""] if a["documents"] else []
