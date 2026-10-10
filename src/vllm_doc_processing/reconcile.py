@@ -6,9 +6,9 @@ Work is split between code and one text-only LLM request (see docs/PROMPTS.md):
   (which TOC entry and heading belong together, titles, levels) and free-text doubts;
 * deterministic: everything else -- page labels in Czech NDK notation (``pagination``), mapping TOC
   page references to scans, chapter hierarchy and bounds, and every check of the LLM answer against
-  the observations: unknown scans, values not grounded in any observation and references not printed
-  in a TOC are dropped with a warning; resolved values that differ from the observations are logged in
-  ``changes``.
+  the observations: unknown scans, bibliographic values and chapter titles that match no observed candidate,
+  TOC entry or heading, and references not printed in the matching TOC entry are dropped with a warning;
+  resolved values that differ from the observations are logged in ``changes``.
 
 Observations are never modified. Inputs longer than ``reconcile_max_chars`` fail before any request
 (no chunking yet).
@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import unicodedata
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -147,7 +148,7 @@ def _resolve(scans: list[ScanRecord], response: ReconcileResponse) -> ResolvedBo
         r.page_labels = pagination.labels[s.scan_index]
         r.page_number = pagination.page_number(s.scan_index)
     out.warnings += pagination.warnings
-    out.bibliography = _bibliography(scans, response.bibliography, refs, out)
+    out.bibliography = _bibliography(scans, response.bibliography, out)
     out.structure = _structure(scans, out.scans, response.chapters, refs, out)
     for issue in response.issues:
         out.warnings.append(
@@ -302,6 +303,37 @@ def _same(a: str, b: str) -> bool:
     return " ".join(a.split()) == " ".join(b.split())
 
 
+def _words(text: str) -> list[str]:
+    """Lower-case words without accents ("V Praze," -> ["v", "praze"])."""
+    plain = "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
+    return re.findall(r"\w+", plain.casefold())
+
+
+def _word_match(a: str, b: str) -> bool:
+    """Same word up to an initial ("k" ~ "karel") or a Czech inflected ending ("praha" ~ "praze")."""
+    if a == b:
+        return True
+    if min(len(a), len(b)) == 1:
+        return a[0] == b[0]
+    common = 0
+    while common < min(len(a), len(b)) and a[common] == b[common]:
+        common += 1
+    return common >= max(3, min(len(a), len(b)) - 2)
+
+
+def _matches(title: str, text: str) -> bool:
+    """A TOC entry or heading ``text`` belongs to a chapter ``title`` if one contains the other's words
+    ("Úvod" ~ "KAPITOLA I. Úvod")."""
+    return _covered(title, [text]) or _covered(text, [title])
+
+
+def _covered(value: str, observed: list[str]) -> bool:
+    """Every word of ``value`` occurs, up to initials and inflection, in the ``observed`` texts."""
+    seen = [w for text in observed for w in _words(text)]
+    words = _words(value)
+    return bool(words) and all(any(_word_match(w, o) for o in seen) for w in words)
+
+
 class _RefChecker:
     """Maps 1-based scan positions from the LLM to scan IDs; out-of-range positions become warnings."""
 
@@ -326,7 +358,7 @@ class _RefChecker:
 
 
 def _bibliography(
-    scans: list[ScanRecord], values: list[BiblioValue], refs: _RefChecker, out: ResolvedBook
+    scans: list[ScanRecord], values: list[BiblioValue], out: ResolvedBook
 ) -> Bibliography:
     observed = [(s, c) for s in scans if s.observation for c in s.observation.bibliographic_candidates]
     for f in SINGLE_VALUED:
@@ -345,16 +377,17 @@ def _bibliography(
     for v in values:
         path = f"resolved.bibliography.{v.field.value}"
         exact = [s.scan_id for s, c in observed if c.field == v.field and _same(c.value, v.value)]
+        # The same text in any field (field moved), or a variant of a candidate of this field (initials,
+        # inflection, a shortened form); citing a scan is not enough.
         similar = [s.scan_id for s, c in observed if _norm(c.value) == _norm(v.value)]
-        cited = [i for i in refs.ids(v.source_scans, path) if refs.scan(i).observation
-                 and refs.scan(i).observation.bibliographic_candidates]
-        sources = list(dict.fromkeys(exact + similar)) or cited
+        related = [s.scan_id for s, c in observed if c.field == v.field and _covered(v.value, [c.value])]
+        sources = list(dict.fromkeys(exact + similar + related))
         if not sources:
             out.warnings.append(
                 ReconciliationWarning(
                     code="ungrounded_value",
-                    message=f"{v.field.value} {v.value!r} proposed by the LLM is not supported by any "
-                    "bibliographic observation; dropped",
+                    message=f"{v.field.value} {v.value!r} proposed by the LLM matches no observed "
+                    f"{v.field.value} candidate (or the same text in another field); dropped",
                     detected_by="check",
                     field_path=path,
                 )
@@ -422,13 +455,18 @@ def _structure(
         path, name = f"resolved.structure[{len(nodes)}]", f"chapter {ch.title!r}"
         toc_ids = refs.ids(ch.toc_scans, path + ".toc_scan_ids")
         heading_ids = refs.ids([ch.heading_scan] if ch.heading_scan is not None else [], path + ".heading_scan_ids")
-        toc_obs = [e for sid in toc_ids if (o := refs.scan(sid).observation) for e in o.toc_entries]
-        head_obs = [h for sid in heading_ids if (o := refs.scan(sid).observation) for h in o.headings]
+        # Only the TOC entries and headings on the cited scans whose text matches the title count.
+        toc_obs = [e for sid in toc_ids if (o := refs.scan(sid).observation) for e in o.toc_entries
+                   if _matches(ch.title, e.title)]
+        head_obs = [h for sid in heading_ids if (o := refs.scan(sid).observation) for h in o.headings
+                    if _matches(ch.title, h.text)]
         if not toc_obs and toc_ids:
-            warn("toc_scan_without_entries", f"{name}: TOC scan has no observed TOC entries; ignored", path, toc_ids)
+            warn("unmatched_toc_entry", f"{name}: no TOC entry on the cited scan(s) matches the title; TOC ignored",
+                 path, toc_ids)
             toc_ids = []
         if not head_obs and heading_ids:
-            warn("heading_not_observed", f"{name}: no heading observed on the given scan; ignored", path, heading_ids)
+            warn("unmatched_heading", f"{name}: no heading on the cited scan matches the title; heading ignored",
+                 path, heading_ids)
             heading_ids = []
         ref = ch.printed_page_reference
         if ref is not None and not any(e.printed_page_reference and _same(e.printed_page_reference, ref)
@@ -437,7 +475,12 @@ def _structure(
                  path, toc_ids)
             ref = None
         if not toc_ids and not heading_ids:
-            warn("ungrounded_chapter", f"{name}: neither a TOC entry nor a heading cited; dropped", path, [])
+            warn("ungrounded_chapter", f"{name}: no matching TOC entry or heading cited; dropped", path, [])
+            continue
+        texts = [e.title for e in toc_obs] + [h.text for h in head_obs]
+        if not _covered(ch.title, texts):
+            warn("ungrounded_title", f"{name}: words not in its TOC entry or heading {texts}; dropped", path,
+                 toc_ids + heading_ids)
             continue
 
         target: str | None = None
@@ -458,7 +501,6 @@ def _structure(
                  f"{name}: heading on scan {index[heading_ids[0]] + 1}, TOC page {ref!r} is on scan "
                  f"{index[target] + 1}; start taken from the heading", path, [heading_ids[0], target])
 
-        texts = [e.title for e in toc_obs] + [h.text for h in head_obs]
         title_observed = any(_same(t, ch.title) for t in texts)
         title_sources = list(dict.fromkeys(toc_ids + heading_ids))
         if not title_observed:
