@@ -7,10 +7,8 @@ this tool is reported separately and never called accuracy. See docs/EVALUATION.
 
 from __future__ import annotations
 
-import hashlib
 from collections import Counter
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from .gold import GoldBook, GoldValue
@@ -67,6 +65,8 @@ def expected(gold: GoldValue) -> Expected:
 def _canon(field: str, value: Any) -> Any:
     if value is None or isinstance(value, Incomparable):
         return value
+    if value == []:  # an empty list of numbers/values means "none", like null
+        return None
     if field == "printed_numbers_exact":
         return tuple(sorted(value))
     if field == "printed_numbers_normalized":
@@ -255,6 +255,8 @@ def score_structure(gold: GoldBook, pred: Prediction | None) -> dict[str, Any] |
         return result | {"scored": False, "reason": "scan_missing" if pred is None else "no_prediction"}
     gold_ch = gold.structure.value or []
     pred_ch = pred.structure
+    if not gold_ch:
+        result["no_chapters_correct"] = not pred_ch
     used: set[int] = set()
     matches = []
     for g in gold_ch:
@@ -347,11 +349,11 @@ def _usage(preds: list[Prediction]) -> dict[str, Any] | None:
 
 
 def evaluate(
-    gold: list[tuple[str, GoldBook]], systems: list[Prediction], comparators: list[Prediction]
+    gold: list[tuple[str, str, GoldBook]], systems: list[Prediction], comparators: list[Prediction]
 ) -> dict[str, Any]:
-    """Build the report. ``gold`` holds (path, book) pairs."""
+    """Build the report. ``gold`` holds (path, sha256, book) triples."""
     _unique_gold(gold)
-    books = [b for _, b in gold]
+    books = [b for _, _, b in gold]
     refs = gold_refs(books)
     ref_books = {b.book_id: {s.scan_id for s in b.scans} for b in books}
     biblio_refs = {b.book_id: {f.value: expected(v) for f, v in b.bibliography.items()} for b in books}
@@ -360,7 +362,8 @@ def evaluate(
     if books:
         for (system, layer), preds in _groups(systems + comparators).items():
             matched = match_books(ref_books, preds)
-            fields, errors, scans = score_scans(refs, matched, _provided(preds, SCAN_FIELDS))
+            provided = _provided(preds, SCAN_FIELDS)
+            fields, errors, scans = score_scans(refs, matched, provided)
             biblio, biblio_errors, structure = {}, [], []
             if any(p.bibliography is not None for p in preds):
                 biblio, biblio_errors = score_bibliography(biblio_refs, matched)
@@ -373,7 +376,7 @@ def evaluate(
                     "role": preds[0].role,
                     "books_matched": sorted(matched),
                     "books_unmatched": sorted(ref_books.keys() - matched.keys()),
-                    "fields_not_provided": [f for f in SCAN_FIELDS if f not in _provided(preds, SCAN_FIELDS)],
+                    "fields_not_provided": [f for f in SCAN_FIELDS if f not in provided],
                     "scans": scans,
                     "fields": fields,
                     "bibliography": biblio,
@@ -412,9 +415,9 @@ def evaluate(
         "evaluator_version": EVALUATOR_VERSION,
         "inputs": {
             "gold": [
-                {"path": path, "sha256": _sha(path), "book_id": b.book_id, "gold_version": b.gold_version,
+                {"path": path, "sha256": sha, "book_id": b.book_id, "gold_version": b.gold_version,
                  "dataset_version": b.dataset_version, "scans": len(b.scans), "complete_book": b.complete}
-                for path, b in gold
+                for path, sha, b in gold
             ],
             "predictions": [
                 {"path": p.path, "sha256": p.sha256, "system": p.system, "layer": p.layer, "role": p.role,
@@ -441,13 +444,9 @@ def _as_agreement(summary: dict[str, Any]) -> dict[str, Any]:
     return out | {"agreeing": summary["correct"], "agreement": summary["accuracy"]}
 
 
-def _sha(path: str) -> str:
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
-
-
-def _unique_gold(gold: list[tuple[str, GoldBook]]) -> None:
-    ids = [b.book_id for _, b in gold]
-    scan_ids = [s.scan_id for _, b in gold for s in b.scans]
+def _unique_gold(gold: list[tuple[str, str, GoldBook]]) -> None:
+    ids = [b.book_id for _, _, b in gold]
+    scan_ids = [s.scan_id for _, _, b in gold for s in b.scans]
     if len(ids) != len(set(ids)) or len(scan_ids) != len(set(scan_ids)):
         raise PredictionError("gold files must describe distinct books with distinct scan IDs")
 
