@@ -2,7 +2,7 @@
 
 Experimental **API-only vision-language model processing of digitized books**. A folder of ordered book scans is analyzed image by image using a vision model with context derived from earlier extracted pages. A final text LLM pass reconciles bibliographic metadata, page numbering, page types, sides, table of contents and chapter structure into a custom JSON.
 
-**Status: early implementation.** The output data model (`src/vllm_doc_processing/models.py`, issue #1) the CLI/configuration scaffold (issue #2) the scan inventory/image preparation (issue #3) the OpenAI/OpenRouter structured-output API adapter (issue #4) the single-scan annotation prompt (issue #5, `vllm-doc observe`) and sequential observation of a whole book with bounded context from earlier scans (issue #6, library function `pipeline.observe_book`) and the document-wide reconciliation (issue #7, `reconcile.reconcile_book`) exist but are not yet wired to the CLI; `vllm-doc process` can validate a run with `--dry-run` but does not process whole books yet. Start with the dependency-ordered [issues](https://github.com/DCGM/vllm_doc_processing/issues) (#1–#8 for MVP); code follows in separate PRs.
+**Status: first runnable version (MVP issues #1–#8).** `vllm-doc process` annotates a whole book end to end: scan inventory, sequential observation of every scan with bounded context from earlier scans, document-wide reconciliation and the final JSON, with a checkpoint after every scan and `--resume`. Accuracy and cost have not been benchmarked yet (#10); optional experiments are issues #9–#11.
 
 ## Scope
 - Input: directory of book images (one image per scan: single page or facing-page spread) plus an order file listing the image names without extensions, one per line, in physical scan order. Filenames (usually UUIDs) carry no order.
@@ -19,11 +19,29 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e .
 export OPENROUTER_API_KEY=... # or OPENAI_API_KEY
-vllm-doc process --input /data/scanned-book --output /data/book.json \
-  --provider openrouter --model '<vision-model-id>' \
-  --postprocess-model '<text-model-id>' --dry-run
+# check settings, paths and images without any API call (works without a key)
+vllm-doc process --input /data/scanned-book --output results/book.json \
+  --provider openrouter --model '<vision-model-id>' --postprocess-model '<text-model-id>' --dry-run
+# cheap trial on the first 10 scans, observations only
+vllm-doc process --input /data/scanned-book --output results/book.json \
+  --provider openrouter --model '<vision-model-id>' --max-pages 10 --skip-postprocess
+# continue the same run with the whole book and reconcile (the 10 scans are not requested again)
+vllm-doc process --input /data/scanned-book --output results/book.json \
+  --provider openrouter --model '<vision-model-id>' --postprocess-model '<text-model-id>' --resume
 ```
-`--dry-run` validates configuration, paths and the scan inventory (see [Input scans](#input-scans)), prints the effective (non-secret) settings and scan counts and makes no API calls; a missing API key is reported as a warning (`api_key_set: false`), so it also works without credentials. Without `--dry-run` the command currently exits with an error: processing lands with issues #6–#8. Model names are intentionally not fixed until live benchmarking.
+`--dry-run` validates configuration, paths and the scan inventory (see [Input scans](#input-scans)) and, with `--resume`, the checkpoint; it prints the effective (non-secret) settings and scan counts and makes no API calls. A missing API key is reported as a warning (`api_key_set: false`), so it also works without credentials. Model names are intentionally not fixed until live benchmarking.
+
+### Processing, checkpoints and resume
+1. **Inventory**: the order file and images are validated and hashed.
+2. **Observation**: scans are sent one at a time, in order, each with a bounded text summary of earlier observations. A scan that still fails after retries is left without an observation and the run continues. The checkpoint is rewritten atomically after every scan.
+3. **Reconciliation**: one text-only request over all observations (skipped with `--skip-postprocess`, leaving `resolved: null`).
+4. **Output**: written atomically only at the end, with `run.finished_at` set; `run.warnings` lists scans that were not observed and a skipped reconciliation. Progress (one line per request and per scan, then a summary with tokens and cost) goes to stderr.
+
+The checkpoint (default: the output path with suffix `.checkpoint.json`, e.g. `results/book.checkpoint.json`; `--checkpoint PATH`) holds the observation stage of the book in the output format (`resolved: null`, every API call so far) plus the identity it was made with. It is kept after a successful run. If it exists, a run must say what to do with it:
+- `--resume` observes only scans without an observation (scans not reached yet and scans whose requests failed), then reconciles again; earlier calls stay in `run.calls`, so totals cover the whole run. Resuming a finished run therefore only repeats the reconciliation (e.g. with another `--postprocess-model`). Resume is refused (exit `2`, no request) if anything that shapes the observations changed: the order file, any image (SHA-256), provider/base URL, `model`, image settings, `max_output_tokens`, context settings, `request_params`, the observation prompt or context version, or the schema version. Reconciliation settings, timeouts/retries and a larger `--max-pages` may change; a smaller one is refused.
+- `--fresh` discards it and starts over.
+
+Exit codes of `process`: `0` all scans observed and the output written; `1` the output was written but some scans were not observed (retry them with `--resume`), or a request failed so that no output was written (reconciliation failure; the checkpoint keeps everything); `2` invalid arguments, configuration, paths, images or checkpoint; `130` interrupted (Ctrl-C; the checkpoint holds every completed scan, the interrupted request is not recorded).
 
 ### `vllm-doc process` options
 | Flag | Meaning |
@@ -37,6 +55,10 @@ vllm-doc process --input /data/scanned-book --output /data/book.json \
 | `--model ID` | Vision model for per-scan observation. |
 | `--postprocess-model ID` | Text model for reconciliation; defaults to `--model`. |
 | `--max-pages N` | Process only the first N scans of the order file (cheap experiments). |
+| `--checkpoint PATH` | Observation checkpoint, saved after every scan. Default: OUTPUT with suffix `.checkpoint.json`; must not lie inside `BOOK_DIR`. |
+| `--resume` | Continue from the checkpoint (see above). |
+| `--fresh` | Discard an existing checkpoint and start over. |
+| `--skip-postprocess` | Skip reconciliation; the output holds observations only (`resolved: null`). |
 | `--dry-run` | Validate and print effective settings; no API calls. |
 
 ### `vllm-doc observe` (prompt checks)
