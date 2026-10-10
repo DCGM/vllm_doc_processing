@@ -147,6 +147,13 @@ def _inventory(
     return inventory
 
 
+def _setup_logging() -> None:
+    """Progress lines of this tool on stderr; the HTTP client's one line per request only on warnings."""
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s", stream=sys.stderr)
+    for name in ("httpx", "httpx2"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
 def run_process(args: argparse.Namespace) -> int:
     config = _load_config(args, postprocess_model=args.postprocess_model, max_pages=args.max_pages)
     order_file, checkpoint_path = _check_paths(args)
@@ -184,7 +191,7 @@ def run_process(args: argparse.Namespace) -> int:
         print(json.dumps(summary, indent=2))
         return 0
 
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s", stream=sys.stderr)
+    _setup_logging()
     client = LLMClient(config)
     try:
         book = process_book(
@@ -239,7 +246,7 @@ def run_observe(args: argparse.Namespace) -> int:
         inventory = _inventory(args.input, order_file, args.max_pages)
     scans = inventory.scans
     client = LLMClient(config)
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s", stream=sys.stderr)
+    _setup_logging()
 
     calls: list[CallRecord] = []
     failed = 0
