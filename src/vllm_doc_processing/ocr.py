@@ -1,8 +1,9 @@
 """Optional pre-existing OCR sidecars (plain text or ALTO XML), one per scan, sent as bounded text with the image.
 
 Sidecars are matched by the scan ID (``<scan_id>.txt`` or ``<scan_id>.xml``, extension case-insensitive)
-in one directory. A missing sidecar is allowed (the scan is observed from the image only); an ambiguous
-match, an unreadable file, invalid UTF-8 or malformed/non-ALTO XML stops the run before any request.
+in one directory. A scan whose sidecar is missing or unusable (ambiguous match, unreadable file, invalid
+UTF-8, malformed or non-ALTO XML) is observed from the image only; the problem is recorded in its
+``ocr`` metadata and reported, never replaced by other text.
 The OCR files are only read; their text is never written to the output, checkpoint or logs.
 """
 
@@ -13,18 +14,20 @@ import hashlib
 import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
 from .config import OcrFormat
 from .images import InputError, Inventory
-from .models import OcrInput
+from .models import OcrInput, ScanRecord
 
 EXTENSIONS: dict[str, str] = {".txt": "txt", ".xml": "alto"}
 TRUNCATION_MARK = "\n[... {omitted} characters of OCR text omitted ...]\n"
 
 
 def attach_ocr(inventory: Inventory, ocr_dir: Path, ocr_format: OcrFormat, max_chars: int) -> Inventory:
-    """The inventory with ``scan.ocr`` metadata for every scan and the bounded OCR text of matched scans.
+    """The inventory with ``scan.ocr`` metadata for every scan and the bounded OCR text of usable sidecars.
 
-    Raises ``InputError`` listing every ambiguous, unreadable or malformed sidecar.
+    Only a missing OCR directory raises ``InputError``; a sidecar that cannot be used is recorded in
+    its scan's metadata (``status="error"``) and that scan gets no OCR text.
     """
     if not ocr_dir.is_dir():
         raise InputError(f"OCR directory not found: {ocr_dir}")
@@ -34,43 +37,36 @@ def attach_ocr(inventory: Inventory, ocr_dir: Path, ocr_format: OcrFormat, max_c
         if entry.is_file() and not entry.name.startswith(".") and entry.suffix.lower() in allowed:
             by_stem.setdefault(entry.stem, []).append(entry)
 
-    scans, texts, problems = [], {}, []
+    scans, texts = [], {}
     for scan in inventory.scans:
-        candidates = sorted(by_stem.get(scan.scan_id, []))
-        if len(candidates) > 1:
-            problems.append(f"{scan.scan_id!r} matches several OCR files: {', '.join(p.name for p in candidates)}")
-            continue
-        if not candidates:
-            scans.append(scan.model_copy(update={"ocr": OcrInput(status="missing")}))
-            continue
-        path = candidates[0]
-        fmt = EXTENSIONS[path.suffix.lower()]
-        try:
-            data = path.read_bytes()
-            text = read_alto(data) if fmt == "alto" else read_txt(data)
-        except OSError as exc:
-            problems.append(f"cannot read {path.name}: {exc.strerror or exc}")
-            continue
-        except ValueError as exc:
-            problems.append(f"{path.name}: {exc}")
-            continue
-        sent = bound_text(text, max_chars)
-        texts[scan.scan_id] = sent
-        info = OcrInput(
-            status="ok",
-            filename=path.name,
-            format=fmt,
-            sha256=hashlib.sha256(data).hexdigest(),
-            size_bytes=len(data),
-            chars=len(text),
-            sent_chars=len(sent),
-            truncated=sent != text,
-        )
+        info, text = _load_sidecar(sorted(by_stem.get(scan.scan_id, [])), max_chars)
         scans.append(scan.model_copy(update={"ocr": info}))
-    if problems:
-        shown = problems[:20] + ([f"... and {len(problems) - 20} more"] if len(problems) > 20 else [])
-        raise InputError(f"unusable OCR sidecars in {ocr_dir}: " + "; ".join(shown))
+        if text is not None:
+            texts[scan.scan_id] = text
     return dataclasses.replace(inventory, scans=scans, ocr_dir=ocr_dir, ocr_texts=texts)
+
+
+def _load_sidecar(candidates: list[Path], max_chars: int) -> tuple[OcrInput, str | None]:
+    """Metadata and bounded text of the scan's only sidecar; no text if it is missing or unusable."""
+    if not candidates:
+        return OcrInput(status="missing"), None
+    if len(candidates) > 1:
+        names = ", ".join(p.name for p in candidates)
+        return OcrInput(status="error", error=f"several OCR files match the scan: {names}"), None
+    path = candidates[0]
+    fmt = EXTENSIONS[path.suffix.lower()]
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        error = f"cannot read: {exc.strerror or exc}"
+        return OcrInput(status="error", filename=path.name, format=fmt, error=error), None
+    file_info = dict(filename=path.name, format=fmt, sha256=hashlib.sha256(data).hexdigest(), size_bytes=len(data))
+    try:
+        text = read_alto(data) if fmt == "alto" else read_txt(data)
+    except ValueError as exc:
+        return OcrInput(status="error", error=str(exc), **file_info), None
+    sent = bound_text(text, max_chars)
+    return OcrInput(status="ok", chars=len(text), sent_chars=len(sent), truncated=sent != text, **file_info), sent
 
 
 def read_txt(data: bytes) -> str:
@@ -133,17 +129,25 @@ def bound_text(text: str, max_chars: int) -> str:
     return head + TRUNCATION_MARK.format(omitted=len(text) - len(head) - len(tail)) + tail
 
 
-def ocr_summary(inventory: Inventory) -> dict[str, int]:
-    """Counts of scans by OCR status and format; empty without an OCR directory."""
-    if inventory.ocr_dir is None:
-        return {}
-    infos = [s.ocr for s in inventory.scans if s.ocr is not None]
+def ocr_summary(scans: list[ScanRecord]) -> dict[str, int]:
+    """Counts of scans by OCR use: TXT or ALTO text sent, no sidecar, unusable sidecar, shortened text."""
+    infos = [s.ocr for s in scans if s.ocr is not None]
     return {
-        "txt": sum(i.format == "txt" for i in infos),
-        "alto": sum(i.format == "alto" for i in infos),
+        "txt": sum(i.status == "ok" and i.format == "txt" for i in infos),
+        "alto": sum(i.status == "ok" and i.format == "alto" for i in infos),
         "missing": sum(i.status == "missing" for i in infos),
+        "error": sum(i.status == "error" for i in infos),
         "truncated": sum(i.truncated for i in infos),
     }
+
+
+def ocr_problems(scans: list[ScanRecord]) -> list[str]:
+    """One message per scan whose sidecar could not be used (it was sent as image only)."""
+    return [
+        f"OCR of scan {s.scan_id}{f' ({s.ocr.filename})' if s.ocr.filename else ''} not used, image only: {s.ocr.error}"
+        for s in scans
+        if s.ocr is not None and s.ocr.status == "error"
+    ]
 
 
 def _local(tag: object) -> str:

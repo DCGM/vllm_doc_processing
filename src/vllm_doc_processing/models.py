@@ -194,7 +194,9 @@ class ScanObservation(StrictModel):
 class OcrInput(StrictModel):
     """The OCR sidecar supplied with one scan: metadata only, the OCR text itself is never stored."""
 
-    status: Literal["ok", "missing"] = Field(description="'missing': no sidecar, the scan was sent as image only.")
+    status: Literal["ok", "missing", "error"] = Field(
+        description="'missing': no sidecar; 'error': unusable sidecar (see `error`); both sent as image only."
+    )
     filename: str | None = Field(default=None, description="Sidecar file name in the OCR directory.")
     format: Literal["txt", "alto"] | None = None
     sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$", description="Hash of the sidecar bytes.")
@@ -202,14 +204,20 @@ class OcrInput(StrictModel):
     chars: int | None = Field(default=None, ge=0, description="Length of the normalized OCR text.")
     sent_chars: int | None = Field(default=None, ge=0, description="Length of the OCR text sent (<= ocr_max_chars).")
     truncated: bool = Field(default=False, description="The middle of the text was omitted to fit ocr_max_chars.")
+    error: str | None = Field(default=None, description="Why the sidecar was not used (status 'error' only).")
 
     @model_validator(mode="after")
     def _check_status(self) -> OcrInput:
-        details = (self.filename, self.format, self.sha256, self.size_bytes, self.chars, self.sent_chars)
-        if self.status == "ok" and None in details:
+        file_details = (self.filename, self.format, self.sha256, self.size_bytes)
+        text_details = (self.chars, self.sent_chars)
+        if self.status == "ok" and (None in file_details + text_details or self.error is not None):
             raise ValueError("an 'ok' OCR input needs filename, format, sha256, size_bytes, chars and sent_chars")
-        if self.status == "missing" and (any(d is not None for d in details) or self.truncated):
+        if self.status == "missing" and (any(d is not None for d in file_details) or self.error is not None):
             raise ValueError("a 'missing' OCR input has no file details")
+        if self.status != "ok" and (any(d is not None for d in text_details) or self.truncated):
+            raise ValueError("only an 'ok' OCR input has text lengths")
+        if self.status == "error" and not self.error:
+            raise ValueError("an 'error' OCR input needs an error message")
         return self
 
 

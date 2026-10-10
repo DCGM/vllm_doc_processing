@@ -18,7 +18,7 @@ from .images import Inventory, build_inventory, read_order_file
 from .llm import LLMClient, LLMError
 from .models import CallRecord, UsageTotals, dump_json
 from .observe import observe_scan
-from .ocr import attach_ocr, ocr_summary
+from .ocr import attach_ocr, ocr_problems, ocr_summary
 from .pipeline import process_book
 from .predictions import load_prediction
 from .prompts import PROMPT_VERSIONS
@@ -168,13 +168,16 @@ def _with_ocr(args: argparse.Namespace, config: Config, inventory: Inventory) ->
             raise ConfigError("--ocr-format needs --ocr-dir")
         return inventory
     inventory = attach_ocr(inventory, args.ocr_dir, config.ocr_format, config.ocr_max_chars)
-    counts = ocr_summary(inventory)
+    counts = ocr_summary(inventory.scans)
     print(
-        f"vllm-doc: OCR sidecars for {counts['txt'] + counts['alto']}/{len(inventory.scans)} scan(s) "
-        f"(TXT {counts['txt']}, ALTO {counts['alto']}); {counts['missing']} sent as image only, "
-        f"{counts['truncated']} shortened to ocr_max_chars={config.ocr_max_chars}",
+        f"vllm-doc: OCR text for {counts['txt'] + counts['alto']}/{len(inventory.scans)} scan(s) "
+        f"(TXT {counts['txt']}, ALTO {counts['alto']}); image only: {counts['missing']} without sidecar, "
+        f"{counts['error']} with unusable sidecar; {counts['truncated']} shortened to "
+        f"ocr_max_chars={config.ocr_max_chars}",
         file=sys.stderr,
     )
+    for problem in ocr_problems(inventory.scans):
+        print(f"vllm-doc: warning: {problem}", file=sys.stderr)
     return inventory
 
 
@@ -253,7 +256,8 @@ def run_process(args: argparse.Namespace) -> int:
             "selected_scans": len(inventory.scans),
             "unlisted_images": inventory.unlisted,
             "ocr_directory": str(inventory.ocr_dir) if inventory.ocr_dir else None,
-            "ocr_sidecars": ocr_summary(inventory) or None,
+            "ocr_sidecars": ocr_summary(inventory.scans) if inventory.ocr_dir else None,
+            "ocr_problems": ocr_problems(inventory.scans),
             "checkpoint_exists": checkpoint_path.exists(),
         }
         if resume_from:

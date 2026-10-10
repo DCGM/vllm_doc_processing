@@ -26,7 +26,7 @@ AnnotatedBook
 - Scan order comes from an **order file** (one image name without extension per line, in physical order; recorded in `source.order_file`). Filenames are usually UUIDs and are not sorted.
 - `scan_index` is the zero-based line position in the order file. `scan_id` is the listed name (e.g. the page UUID), so it is stable even if scans are added; `filename` is the matching file including its extension. Neither is a printed page number.
 - `image_sha256` is the hash of the original file bytes; `width`/`height` are pixel dimensions of the upright original (EXIF orientation applied), not of the possibly downscaled upload. With `--max-pages N`, `scans` holds only the first N listed scans and `source.scan_count == N`.
-- `ocr` (#14) describes the OCR sidecar sent with the scan; it is `null` in every scan of a run without `--ocr-dir` (`source.ocr_directory: null`) and set in every scan of a run with one. `OcrInput`: `status: ok|missing` (`missing` = no sidecar, the scan was sent as image only, all other fields `null`), `filename` (in `source.ocr_directory`), `format: txt|alto`, `sha256` and `size_bytes` of the sidecar bytes, `chars` (length of the normalized text), `sent_chars` (length sent, ≤ `ocr_max_chars`), `truncated`. The OCR text itself is never stored. It is request input, not evidence: observations are not attributed to OCR.
+- `ocr` (#14) describes the OCR sidecar sent with the scan; it is `null` in every scan of a run without `--ocr-dir` (`source.ocr_directory: null`) and set in every scan of a run with one. `OcrInput`: `status: ok|missing|error`, `filename` (in `source.ocr_directory`), `format: txt|alto`, `sha256` and `size_bytes` of the sidecar bytes, `chars` (length of the normalized text), `sent_chars` (length sent, ≤ `ocr_max_chars`), `truncated`, `error`. `missing` = no sidecar (all other fields `null`); `error` = the sidecar could not be used (`error` says why: ambiguous match, unreadable, not UTF-8, malformed or non-ALTO XML; file details as far as known, no text lengths). Both are sent as image only and listed in `run.warnings`. The OCR text itself is never stored. It is request input, not evidence: observations are not attributed to OCR.
 - Exactly one `observation` per scan. `null` means the scan was not (successfully) observed; failed attempts are in `run.calls`. `observation_call_id` names the call that produced it: when a scan is escalated (#9) the stronger model's output replaces the cheaper one, and the cheaper call stays only in `run.calls`.
 - `ScanObservation` is also the vision model's response contract (#5):
 
@@ -76,7 +76,7 @@ The checkpoint file (`--checkpoint`, #8) is `{"checkpoint_version": 1, "identity
 
 ## Validated invariants
 - `schema_version` is `"0.3"`; `source.scan_count == len(scans)`.
-- `scans[].ocr` is set in every scan if `source.ocr_directory` is set, else `null` in every scan; an `ok` OCR input has all file details, a `missing` one none.
+- `scans[].ocr` is set in every scan if `source.ocr_directory` is set, else `null` in every scan; an `ok` OCR input has all file details and text lengths, a `missing` one none, an `error` one an `error` message and no text lengths.
 - `scans` in order-file order, `scan_index` contiguous from 0; `scan_id`, `filename`, `call_id` unique.
 - Every scan ID referenced anywhere (`resolved.*`, `run.calls[].scan_id`) exists.
 - If `resolved` is present, `resolved.scans` lists every input scan exactly once, in scan order.
