@@ -31,19 +31,25 @@ def attach_ocr(inventory: Inventory, ocr_dir: Path, ocr_format: OcrFormat, max_c
     """
     if not ocr_dir.is_dir():
         raise InputError(f"OCR directory not found: {ocr_dir}")
-    allowed = {ext for ext, fmt in EXTENSIONS.items() if ocr_format in ("auto", fmt)}
-    by_stem: dict[str, list[Path]] = {}
-    for entry in ocr_dir.iterdir():
-        if entry.is_file() and not entry.name.startswith(".") and entry.suffix.lower() in allowed:
-            by_stem.setdefault(entry.stem, []).append(entry)
-
+    by_stem = find_sidecars(ocr_dir, {ext for ext, fmt in EXTENSIONS.items() if ocr_format in ("auto", fmt)})
     scans, texts = [], {}
     for scan in inventory.scans:
-        info, text = _load_sidecar(sorted(by_stem.get(scan.scan_id, [])), max_chars)
+        info, text = _load_sidecar(by_stem.get(scan.scan_id, []), max_chars)
         scans.append(scan.model_copy(update={"ocr": info}))
         if text is not None:
             texts[scan.scan_id] = text
     return dataclasses.replace(inventory, scans=scans, ocr_dir=ocr_dir, ocr_texts=texts)
+
+
+def find_sidecars(directory: Path, extensions: set[str]) -> dict[str, list[Path]]:
+    """Sidecar candidates by file stem (= scan ID): files directly in ``directory`` whose lower-case
+    extension is in ``extensions``, sorted. More than one candidate for a scan is an ambiguous match.
+    Shared by processing and ``gold-template`` so both see the same OCR files."""
+    by_stem: dict[str, list[Path]] = {}
+    for entry in directory.iterdir():
+        if entry.is_file() and not entry.name.startswith(".") and entry.suffix.lower() in extensions:
+            by_stem.setdefault(entry.stem, []).append(entry)
+    return {stem: sorted(paths) for stem, paths in by_stem.items()}
 
 
 def _load_sidecar(candidates: list[Path], max_chars: int) -> tuple[OcrInput, str | None]:

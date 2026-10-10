@@ -13,8 +13,9 @@ from typing import Generic, Literal, TypeVar
 
 from pydantic import Field, model_validator
 
-from .images import Inventory
+from .images import InputError, Inventory
 from .models import BiblioField, Leaf, PageType, ScanSide, StrictModel
+from .ocr import find_sidecars
 
 GOLD_VERSION = "1"
 
@@ -127,15 +128,25 @@ def load_gold(path: Path) -> tuple[GoldBook, str]:
 def gold_template(
     inventory: Inventory, book_id: str, source: str | None, txt_dir: Path | None, alto_dir: Path | None
 ) -> GoldBook:
-    """Manifest of every listed scan with all labels ``not_reviewed``; OCR sidecars ``<scan_id>.txt|.xml``."""
+    """Manifest of every listed scan with all labels ``not_reviewed``.
+
+    OCR sidecars ``<scan_id>.txt`` / ``<scan_id>.xml`` are matched as in processing (``ocr.find_sidecars``,
+    extension case-insensitive). An ambiguous match or an unreadable sidecar raises ``InputError``, so
+    the manifest never silently omits OCR that exists.
+    """
+    problems: list[str] = []
+    txt = _sidecars(txt_dir, ".txt", inventory, problems)
+    alto = _sidecars(alto_dir, ".xml", inventory, problems)
+    if problems:
+        raise InputError("unusable OCR sidecars: " + "; ".join(problems))
     scans = [
         GoldScan(
             scan_id=s.scan_id,
             scan_index=s.scan_index,
             filename=s.filename,
             image_sha256=s.image_sha256,
-            txt=_sidecar(txt_dir, s.scan_id + ".txt"),
-            alto=_sidecar(alto_dir, s.scan_id + ".xml"),
+            txt=txt.get(s.scan_id),
+            alto=alto.get(s.scan_id),
         )
         for s in inventory.scans
     ]
@@ -145,7 +156,23 @@ def gold_template(
     )
 
 
-def _sidecar(directory: Path | None, name: str) -> Sidecar | None:
-    if directory is None or not (directory / name).is_file():
-        return None
-    return Sidecar(filename=name, sha256=hashlib.sha256((directory / name).read_bytes()).hexdigest())
+def _sidecars(
+    directory: Path | None, extension: str, inventory: Inventory, problems: list[str]
+) -> dict[str, Sidecar]:
+    if directory is None:
+        return {}
+    by_stem = find_sidecars(directory, {extension})
+    found = {}
+    for scan in inventory.scans:
+        paths = by_stem.get(scan.scan_id, [])
+        if len(paths) > 1:
+            names = ", ".join(p.name for p in paths)
+            problems.append(f"several OCR files match scan {scan.scan_id!r} in {directory}: {names}")
+        elif paths:
+            try:
+                sha = hashlib.sha256(paths[0].read_bytes()).hexdigest()
+            except OSError as exc:
+                problems.append(f"cannot read {paths[0]}: {exc.strerror or exc}")
+                continue
+            found[scan.scan_id] = Sidecar(filename=paths[0].name, sha256=sha)
+    return found

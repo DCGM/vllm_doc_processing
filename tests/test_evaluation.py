@@ -7,7 +7,8 @@ from pydantic import ValidationError
 
 from vllm_doc_processing.cli import EXIT_CONFIG, main
 from vllm_doc_processing.evaluation import evaluate, to_markdown
-from vllm_doc_processing.gold import GoldBook, GoldChapter, GoldValue, load_gold
+from vllm_doc_processing.gold import GoldBook, GoldChapter, GoldValue, gold_template, load_gold
+from vllm_doc_processing.images import InputError, build_inventory
 from vllm_doc_processing.predictions import Incomparable, load_prediction, normalize_number, page_type
 
 EXAMPLES = Path(__file__).parents[1] / "examples"
@@ -198,6 +199,32 @@ def test_gold_template(tmp_path):
     assert all(s.page_type.status == "not_reviewed" for s in gold.scans) and gold.complete
     assert evaluate([(str(out), sha, gold)], [], [])["gold_status_counts"]["page_type"] == {"not_reviewed": 2}
     assert main(argv) == EXIT_CONFIG  # never overwrites annotations
+
+
+def test_gold_template_matches_ocr_sidecars_like_processing(tmp_path):
+    book = tmp_path / "book"
+    book.mkdir()
+    (book / "order.txt").write_text("a\nb\nc\n")
+    for name in "abc":
+        Image.new("L", (40, 60), 255).save(book / f"{name}.png")
+    txt, alto = tmp_path / "txt", tmp_path / "alto"
+    txt.mkdir(), alto.mkdir()
+    (txt / "a.TXT").write_text("Kapitola")  # upper-case extensions are sidecars, as in processing
+    (alto / "b.XML").write_text("<alto/>")
+    out = tmp_path / "gold.json"
+    argv = ["gold-template", "--input", str(book), "--output", str(out), "--txt-dir", str(txt), "--alto-dir", str(alto)]
+    assert main(argv) == 0
+    gold, _ = load_gold(out)
+    assert [(s.txt and s.txt.filename, s.alto and s.alto.filename) for s in gold.scans] == [
+        ("a.TXT", None), (None, "b.XML"), (None, None)]
+
+    # Ambiguous candidates (mixed-case duplicate extensions) are an error, never silently omitted.
+    out.unlink()
+    (txt / "a.txt").write_text("Kapitola")
+    (alto / "c.xml").write_text("<alto/>"), (alto / "c.Xml").write_text("<alto/>")
+    with pytest.raises(InputError, match=r"'a' in .*: a.TXT, a.txt;.*'c' in .*: c.Xml, c.xml"):
+        gold_template(build_inventory(book, book / "order.txt"), "b", None, txt, alto)
+    assert main(argv) == EXIT_CONFIG and not out.exists()
 
 
 def test_metakat_chapter_cycle_is_an_error(tmp_path):

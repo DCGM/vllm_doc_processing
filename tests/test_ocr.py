@@ -144,6 +144,16 @@ def test_corrupted_sidecar_is_reported_and_scan_processed_from_image(run, tmp_pa
     assert any(w.startswith(f"OCR of scan {NAMES[0]} ({NAMES[0]}.xml) not used") for w in book.run.warnings)
 
 
+def test_output_and_checkpoint_never_written_into_ocr_dir(run, tmp_path):
+    ocr_dir = tmp_path / "ocr"
+    ocr_dir.mkdir()
+    sidecar = ocr_dir / f"{NAMES[0]}.txt"
+    sidecar.write_text("Kapitola", encoding="utf-8")
+    for flags in (["--checkpoint", str(sidecar)], ["--checkpoint", str(ocr_dir / "new.json")]):
+        assert run([], "--ocr-dir", str(ocr_dir), *flags) == (EXIT_CONFIG, [])
+    assert sidecar.read_text(encoding="utf-8") == "Kapitola" and sorted(ocr_dir.iterdir()) == [sidecar]
+
+
 def test_image_only_run_has_no_ocr(run, tmp_path):
     code, requests = run(answers(0, 2) + [completion(json.dumps(RECONCILED))], "--max-pages", "2")
     assert code == 0 and not any("<ocr>" in r["messages"][1]["content"][-1]["text"] for r in requests)
