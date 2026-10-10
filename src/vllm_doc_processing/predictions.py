@@ -19,6 +19,7 @@ from typing import Any, Literal
 from pydantic import ValidationError
 
 from .models import SCHEMA_VERSION, AnnotatedBook, BiblioField, PageType
+from .ocr import ocr_summary
 from .pagination import roman_value, to_roman
 
 SCAN_FIELDS = ("page_type", "side", "leaf", "printed_numbers_exact", "printed_numbers_normalized", "page_number")
@@ -229,15 +230,7 @@ def _provenance(book: AnnotatedBook) -> dict[str, Any]:
     params = run.parameters
     ocr: dict[str, Any] | str = "image-only"
     if book.source.ocr_directory is not None:
-        infos = [s.ocr for s in book.scans if s.ocr is not None]
-        ocr = {
-            "format": params.get("ocr_format"),
-            "max_chars": params.get("ocr_max_chars"),
-            "txt": sum(i.format == "txt" for i in infos),
-            "alto": sum(i.format == "alto" for i in infos),
-            "missing": sum(i.status == "missing" for i in infos),
-            "truncated": sum(i.truncated for i in infos),
-        }
+        ocr = {"format": params.get("ocr_format"), "max_chars": params.get("ocr_max_chars"), **ocr_summary(book.scans)}
     duration = (run.finished_at - run.started_at).total_seconds() if run.started_at and run.finished_at else None
     requests = run.totals.requests
     return {

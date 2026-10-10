@@ -16,7 +16,7 @@ from .images import Inventory
 from .llm import LLMClient, LLMError
 from .models import AnnotatedBook, OcrInput, RunInfo, SourceInfo
 from .observe import observe_prompt_versions, observe_scan
-from .ocr import ocr_summary
+from .ocr import ocr_problems, ocr_summary
 from .reconcile import reconcile_book
 
 log = logging.getLogger(__name__)
@@ -100,8 +100,8 @@ def observe_book(
 def _ocr_state(ocr: OcrInput | None) -> str:
     if ocr is None:
         return "-"
-    if ocr.status == "missing":
-        return "missing"
+    if ocr.status != "ok":
+        return ocr.status
     return f"{ocr.format}:{ocr.sent_chars}" + ("(truncated)" if ocr.truncated else "")
 
 
@@ -149,10 +149,11 @@ def process_book(
     unobserved = [s.scan_id for s in book.scans if s.observation is None]
     if unobserved:
         warnings.append(f"{len(unobserved)} scan(s) not observed (failed requests): {', '.join(unobserved)}")
-    ocr = ocr_summary(inventory)
-    if ocr.get("missing"):
+    ocr = ocr_summary(book.scans)
+    if ocr["missing"]:
         warnings.append(f"{ocr['missing']} scan(s) had no OCR sidecar and were sent as image only")
-    if ocr.get("truncated"):
+    warnings += ocr_problems(book.scans)
+    if ocr["truncated"]:
         warnings.append(f"OCR text of {ocr['truncated']} scan(s) was shortened to ocr_max_chars")
     if skip_postprocess:
         warnings.append("reconciliation skipped (--skip-postprocess); resolved is null")
