@@ -23,6 +23,13 @@ from .pagination import roman_value, to_roman
 
 SCAN_FIELDS = ("page_type", "side", "leaf", "printed_numbers_exact", "printed_numbers_normalized", "page_number")
 
+# Scan fields each source/layer outputs by contract; a scan without a value for them (e.g. a failed
+# observation) counts as ``no_prediction``, it does not make the field "not provided".
+OBSERVED_FIELDS = ("page_type", "side", "leaf", "printed_numbers_exact", "printed_numbers_normalized")
+RESOLVED_FIELDS = ("page_type", "side", "leaf", "page_number")
+METAKAT_FIELDS = ("page_type", "side", "page_number")
+KRAMERIUS_FIELDS = ("page_type", "page_number")
+
 _PAGE_TYPES = {t.value.casefold(): t.value for t in PageType}
 
 METAKAT_BIBLIO = {
@@ -84,6 +91,8 @@ class Prediction:
     sha256: str
     book_id: str
     scans: dict[str, PredictedScan]
+    fields: tuple[str, ...]
+    """Scan fields this system outputs at this layer."""
     bibliography: dict[str, list[str]] | None = None
     structure: list[PredictedChapter] | None = None
     provenance: dict[str, Any] = field(default_factory=dict)
@@ -182,7 +191,7 @@ def from_annotated_book(data: dict, path: str, sha: str, system: str) -> list[Pr
         observed[s.scan_id] = PredictedScan(s.scan_id, s.scan_index, s.image_sha256, values)
     provenance = _provenance(book)
     common = dict(system=system, role="system", path=path, sha256=sha, book_id=book.book_id, provenance=provenance)
-    out = [Prediction(layer="observed", scans=observed, **common)]
+    out = [Prediction(layer="observed", scans=observed, fields=OBSERVED_FIELDS, **common)]
     if (r := book.resolved) is not None:
         resolved = {}
         for s, rs in zip(book.scans, r.scans, strict=True):
@@ -201,7 +210,12 @@ def from_annotated_book(data: dict, path: str, sha: str, system: str) -> list[Pr
             PredictedChapter(n.title and n.title.value, n.level, n.start_scan_id, n.printed_page_reference)
             for n in r.structure
         ]
-        out.append(Prediction(layer="resolved", scans=resolved, bibliography=biblio, structure=structure, **common))
+        out.append(
+            Prediction(
+                layer="resolved", scans=resolved, fields=RESOLVED_FIELDS, bibliography=biblio, structure=structure,
+                **common,
+            )
+        )
     return out
 
 
@@ -302,7 +316,7 @@ def from_metakat(data: dict, path: str, sha: str, system: str) -> Prediction:
         book_id = (volumes or titles or [{"id": data["batch_id"]}])[0]["id"]
     except (KeyError, TypeError, IndexError, AttributeError) as exc:
         raise PredictionError(f"{path}: invalid MetakatIO: {exc!r}") from exc
-    return Prediction(system, "reference", "comparator", path, sha, str(book_id), scans, biblio, structure)
+    return Prediction(system, "reference", "comparator", path, sha, str(book_id), scans, METAKAT_FIELDS, biblio, structure)
 
 
 def from_kramerius(data: dict, path: str, sha: str, system: str) -> Prediction:
@@ -320,4 +334,4 @@ def from_kramerius(data: dict, path: str, sha: str, system: str) -> Prediction:
         book_id = str(data["document"]["pid"]).removeprefix("uuid:")
     except (KeyError, TypeError) as exc:
         raise PredictionError(f"{path}: invalid Kramerius file: {exc!r}") from exc
-    return Prediction(system, "reference", "comparator", path, sha, book_id, scans)
+    return Prediction(system, "reference", "comparator", path, sha, book_id, scans, KRAMERIUS_FIELDS)

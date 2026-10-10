@@ -28,7 +28,9 @@ SCORED = ("correct", "wrong_value", "missing_value", "spurious_value")
 """Outcomes in the accuracy denominator. ``missing_value``: reference has a value, prediction null;
 ``spurious_value``: reference expects null, prediction has a value."""
 
-UNSCORED = ("no_prediction", "incomparable", "ambiguous_unscorable", "scan_missing", "hash_mismatch")
+UNSCORED = (
+    "no_prediction", "incomparable", "ambiguous_unscorable", "scan_missing", "hash_mismatch", "document_incompatible"
+)
 """Eligible reference items that could not be scored (lower coverage)."""
 
 GOLD_FIELD = {f: f.removesuffix("_exact").removesuffix("_normalized") for f in SCAN_FIELDS}
@@ -212,7 +214,10 @@ def match_books(ref_books: dict[str, set[str]], preds: list[Prediction]) -> dict
     return out
 
 
-def score_bibliography(refs: dict[str, dict[str, Expected]], pred: dict[str, Prediction]) -> tuple[dict, list]:
+def score_bibliography(
+    refs: dict[str, dict[str, Expected]], pred: dict[str, Prediction], checks: dict[str, dict[str, Any]]
+) -> tuple[dict, list]:
+    """Only predictions of the whole, unchanged book (``checks[book_id]['compatible']``) are scored."""
     stats: dict[str, FieldStats] = {}
     errors = []
     for book_id, fields in sorted(refs.items()):
@@ -227,6 +232,8 @@ def score_bibliography(refs: dict[str, dict[str, Expected]], pred: dict[str, Pre
                 result = "scan_missing"
             elif book.bibliography is None or name not in book.bibliography:
                 result = "no_prediction"
+            elif not checks[book_id]["compatible"]:
+                result = "document_incompatible"
             else:
                 value = book.bibliography[name] or None
                 result = outcome(f, exp, value)
@@ -245,14 +252,19 @@ def score_bibliography(refs: dict[str, dict[str, Expected]], pred: dict[str, Pre
     return {f: s.summary() for f, s in sorted(stats.items())}, errors
 
 
-def score_structure(gold: GoldBook, pred: Prediction | None) -> dict[str, Any] | None:
-    """Chapter list of a verified whole book: title matching, start scans, levels, TOC references."""
+def score_structure(gold: GoldBook, pred: Prediction | None, check: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Chapter list of a verified whole book: title matching, start scans, levels, TOC references.
+
+    Scored only if the prediction covers the whole book with no image hash mismatch (``check``).
+    """
     status = gold.structure.status
     if status not in ("verified", "absent", "not_applicable"):
         return None
     result: dict[str, Any] = {"book_id": gold.book_id, "reference_status": status}
     if pred is None or pred.structure is None:
         return result | {"scored": False, "reason": "scan_missing" if pred is None else "no_prediction"}
+    if not check["compatible"]:
+        return result | {"scored": False, "reason": "document_incompatible"}
     gold_ch = gold.structure.value or []
     pred_ch = pred.structure
     if not gold_ch:
@@ -274,10 +286,9 @@ def score_structure(gold: GoldBook, pred: Prediction | None) -> dict[str, Any] |
     ]
     gold_starts = {g.start_scan_id for g in gold_ch if g.start_scan_id}
     pred_starts = {p.start_scan_id for p in pred_ch if p.start_scan_id}
-    covered = {s.scan_id for s in gold.scans} <= pred.scans.keys()
     return result | {
         "scored": True,
-        "prediction_covers_book": covered,
+        "hashes_verified": check["hashes_verified"],
         "gold_chapters": len(gold_ch),
         "predicted_chapters": len(pred_ch),
         "title_matches": len(matched),
@@ -305,8 +316,41 @@ def score_structure(gold: GoldBook, pred: Prediction | None) -> dict[str, Any] |
 
 
 def _provided(preds: list[Prediction], fields: tuple[str, ...]) -> tuple[str, ...]:
-    """Fields that the system outputs at this layer at all (others are reported as not provided)."""
-    return tuple(f for f in fields if any(f in s.values for p in preds for s in p.scans.values()))
+    """Fields that the system outputs at this layer by contract (others are reported as not provided)."""
+    return tuple(f for f in fields if any(f in p.fields for p in preds))
+
+
+def document_check(
+    book_id: str, scan_count: int, ref_hashes: dict[str, str | None], pred: Prediction | None
+) -> dict[str, Any]:
+    """Whether document-level results (bibliography, structure) of ``pred`` may be scored for this book.
+
+    Requires a prediction of the whole book (as many scans as the book has, including every reference
+    scan) and no image hash mismatch. ``hashes_verified`` is false when hashes are missing on either side.
+    """
+    if pred is None:
+        return {"book_id": book_id, "compatible": False, "reason": "no prediction"}
+    missing = sorted(set(ref_hashes) - pred.scans.keys())
+    pairs = [(h, pred.scans[i].image_sha256) for i, h in ref_hashes.items() if i in pred.scans]
+    mismatches = sum(bool(a and b and a != b) for a, b in pairs)
+    if mismatches:
+        reason = "image hash mismatch"
+    elif missing or len(pred.scans) < scan_count:
+        reason = "partial prediction"
+    elif len(pred.scans) != scan_count:
+        reason = "scan count differs"
+    else:
+        reason = None
+    return {
+        "book_id": book_id,
+        "compatible": reason is None,
+        "reason": reason,
+        "book_scans": scan_count,
+        "prediction_scans": len(pred.scans),
+        "missing_reference_scans": len(missing),
+        "hash_mismatches": mismatches,
+        "hashes_verified": bool(pairs) and all(a and b for a, b in pairs) and not missing,
+    }
 
 
 def _ratio(a: int, b: int) -> float | None:
@@ -364,11 +408,19 @@ def evaluate(
             matched = match_books(ref_books, preds)
             provided = _provided(preds, SCAN_FIELDS)
             fields, errors, scans = score_scans(refs, matched, provided)
+            checks = {
+                b.book_id: document_check(
+                    b.book_id, b.scan_count, {s.scan_id: s.image_sha256 for s in b.scans}, matched.get(b.book_id)
+                )
+                for b in books
+            }
             biblio, biblio_errors, structure = {}, [], []
             if any(p.bibliography is not None for p in preds):
-                biblio, biblio_errors = score_bibliography(biblio_refs, matched)
+                biblio, biblio_errors = score_bibliography(biblio_refs, matched, checks)
             if any(p.structure is not None for p in preds):
-                structure = [s for b in books if (s := score_structure(b, matched.get(b.book_id)))]
+                structure = [
+                    s for b in books if (s := score_structure(b, matched.get(b.book_id), checks[b.book_id]))
+                ]
             accuracy.append(
                 {
                     "system": system,
@@ -378,6 +430,7 @@ def evaluate(
                     "books_unmatched": sorted(ref_books.keys() - matched.keys()),
                     "fields_not_provided": [f for f in SCAN_FIELDS if f not in provided],
                     "scans": scans,
+                    "documents": [checks[b] for b in sorted(matched)] if biblio or structure else [],
                     "fields": fields,
                     "bibliography": biblio,
                     "structure": structure,
@@ -397,7 +450,13 @@ def evaluate(
                 c.book_id: {f: Expected("reference_value", (v,)) for f, v in (c.bibliography or {}).items() if v}
                 for c in comps
             }
-            biblio, biblio_errors = score_bibliography(biblio_c, matched)
+            checks = {
+                c.book_id: document_check(
+                    c.book_id, len(c.scans), {s.scan_id: s.image_sha256 for s in c.scans.values()}, matched.get(c.book_id)
+                )
+                for c in comps
+            }
+            biblio, biblio_errors = score_bibliography(biblio_c, matched, checks)
             agreement.append(
                 {
                     "system": system,
@@ -538,6 +597,13 @@ def to_markdown(report: dict[str, Any]) -> str:
             f"fields not provided: {', '.join(a['fields_not_provided']) or 'none'}",
             "",
         ]
+        for d in a["documents"]:
+            state = "scored" if d["compatible"] else f"not scored ({d['reason']})"
+            out.append(
+                f"- document level of `{d['book_id']}`: {state}; scans {d['prediction_scans']}/{d['book_scans']}, "
+                f"hash mismatches {d['hash_mismatches']}, hashes verified {d['hashes_verified']}"
+            )
+        out += [""] if a["documents"] else []
         out += _field_table(a["fields"])
         if a["bibliography"]:
             out += ["", "Bibliography (normalized value sets):", ""] + _field_table(a["bibliography"])

@@ -214,3 +214,60 @@ def test_absent_structure_scored_correct():
     book = load_prediction(BOOK)[1]
     book.structure = []
     assert run(gold, book)["accuracy"][0]["structure"][0]["no_chapters_correct"] is True
+
+
+def test_document_level_needs_whole_unchanged_book():
+    gold = example_gold()
+    partial = load_prediction(BOOK)[1]
+    del partial.scans[P + "5"]  # e.g. a --max-pages run
+    acc = run(gold, partial)["accuracy"][0]
+    assert acc["documents"][0]["reason"] == "partial prediction"
+    assert acc["bibliography"]["title"]["outcomes"]["document_incompatible"] == 1
+    assert acc["bibliography"]["title"]["scored"] == 0
+    assert acc["structure"][0] == {
+        "book_id": "example-book", "reference_status": "verified", "scored": False, "reason": "document_incompatible"
+    }
+    assert acc["fields"]["page_type"]["scored"] == 4  # scans present are still scored
+
+    changed = gold.model_copy(deep=True)
+    changed.scans[1].image_sha256 = "f" * 64
+    acc = run(changed, load_prediction(BOOK)[1])["accuracy"][0]
+    assert acc["documents"][0]["reason"] == "image hash mismatch"
+    assert acc["bibliography"]["author"]["outcomes"]["document_incompatible"] == 1
+    assert acc["structure"][0]["scored"] is False
+
+    ok = run(gold, load_prediction(BOOK)[1])["accuracy"][0]
+    assert ok["documents"][0]["compatible"] and ok["documents"][0]["hashes_verified"]
+    assert ok["structure"][0]["scored"] and ok["structure"][0]["hashes_verified"]
+
+
+def test_document_level_without_hashes_is_reported_unverified(tmp_path):
+    acc = run(example_gold(), *load_prediction(metakat(tmp_path)))["accuracy"][0]
+    assert acc["documents"][0]["compatible"] and not acc["documents"][0]["hashes_verified"]
+    assert acc["bibliography"]["title"]["correct"] == 1
+
+
+def test_failed_observations_count_as_no_prediction(tmp_path):
+    from vllm_doc_processing.models import AnnotatedBook, ScanRecord, SourceInfo, dump_json
+
+    ids = [f"s{i}" for i in range(10)]
+    hashes = [f"{i:064x}" for i in range(10)]
+    book = AnnotatedBook(
+        book_id="failed",
+        source=SourceInfo(scan_count=10),
+        scans=[ScanRecord(scan_id=s, scan_index=i, filename=f"{s}.jpg", image_sha256=h)
+               for i, (s, h) in enumerate(zip(ids, hashes))],
+    )
+    path = tmp_path / "failed.json"
+    path.write_text(dump_json(book))
+    verified = {"status": "verified", "value": "normalPage"}
+    gold = GoldBook.model_validate({"book_id": "g", "scan_count": 10, "scans": [
+        {"scan_id": s, "scan_index": i, "image_sha256": h, "page_type": verified, "printed_numbers": {"status": "absent"}}
+        for i, (s, h) in enumerate(zip(ids, hashes))]})
+    [observed] = load_prediction(path)
+    acc = run(gold, observed)["accuracy"][0]
+    assert acc["fields_not_provided"] == ["page_number"]
+    for field in ("page_type", "printed_numbers_exact"):
+        stats = acc["fields"][field]
+        assert (stats["eligible"], stats["scored"], stats["coverage"]) == (10, 0, 0.0)
+        assert stats["outcomes"]["no_prediction"] == 10
