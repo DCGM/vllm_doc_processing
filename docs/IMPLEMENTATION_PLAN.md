@@ -36,7 +36,7 @@ vllm-doc process --input ./my-book --output ./results/book.json \
   --provider openrouter --model '<vision-model-id>' \
   --postprocess-model '<text-model-id>'
 ```
-Implemented by #2: `--config config.json` (precedence defaults < file < CLI), `--order-file` (default `BOOK_DIR/order.txt`), `--base-url`, `--dry-run`; by #3: `--max-pages 20`, `image_max_side`/`image_format` settings; by #4: `image_detail`, `request_timeout_s`, `max_retries`, `request_params` settings; by #5: `max_output_tokens` setting and `vllm-doc observe` (independent per-scan annotation for prompt checks); by #6: `use_context`, `context_recent_scans`, `context_max_chars` settings (sequential observation with bounded context, `pipeline.observe_book`); by #7: `reconcile_max_chars`, `reconcile_max_output_tokens` settings (document-wide reconciliation, `reconcile.reconcile_book`); by #8: end-to-end `process` with `--checkpoint`, `--resume`, `--fresh`, `--skip-postprocess` (checkpoint after every scan; resume refused when images, order file or observation settings changed). Expected later: `--escalation-model`. Actual supported flags are tracked in README and `--help` as issues land; new settings are added to `config.Config` by the issue that needs them.
+Implemented by #2: `--config config.json` (precedence defaults < file < CLI), `--order-file` (default `BOOK_DIR/order.txt`), `--base-url`, `--dry-run`; by #3: `--max-pages 20`, `image_max_side`/`image_format` settings; by #4: `image_detail`, `request_timeout_s`, `max_retries`, `request_params` settings; by #5: `max_output_tokens` setting and `vllm-doc observe` (independent per-scan annotation for prompt checks); by #6: `use_context`, `context_recent_scans`, `context_max_chars` settings (sequential observation with bounded context, `pipeline.observe_book`); by #7: `reconcile_max_chars`, `reconcile_max_output_tokens` settings (document-wide reconciliation, `reconcile.reconcile_book`); by #8: end-to-end `process` with `--checkpoint`, `--resume`, `--fresh`, `--skip-postprocess` (checkpoint after every scan; resume refused when images, order file or observation settings changed); by #10: offline `evaluate` (gold accuracy, comparator agreement) and `gold-template` (docs/EVALUATION.md). Expected later: `--escalation-model`. Actual supported flags are tracked in README and `--help` as issues land; new settings are added to `config.Config` by the issue that needs them.
 
 ### Document reasoning specifics
 - Scan index is an ordered physical image index, starting at zero. Printed number is separately observed and may use Arabic or Roman numerals, omit numbers, repeat, or restart.
@@ -60,7 +60,7 @@ Implemented by #2: `--config config.json` (precedence defaults < file < CLI), `-
 
 **M2 — Experimental comparisons:**
 - #9 Optional small-to-large model escalation
-- #10 Benchmark against MetaKat on representative books
+- #10 Evaluation framework (gold annotations, MetaKat/Kramerius as comparators) and benchmark
 - #11 Selective postprocessing image revisits
 
 Prefer delivering #1–#6 before polishing optional features, and record a run on a small real book at #8. Implementation issues are autonomous work units and should use separate, small PRs.

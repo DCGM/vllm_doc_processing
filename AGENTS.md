@@ -49,7 +49,9 @@ src/vllm_doc_processing/
     context.py      # bounded prior-page context
     pipeline.py     # sequential orchestration/checkpointing
     reconcile.py    # document-wide LLM and deterministic checks
-    evaluation.py   # optional offline comparisons
+    gold.py         # gold annotation format / corpus manifest
+    predictions.py  # imports of outputs, MetaKat, Kramerius
+    evaluation.py   # offline scoring and reports
 tests/             # small offline tests
 docs/
 ```
