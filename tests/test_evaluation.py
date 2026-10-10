@@ -238,12 +238,31 @@ def test_document_level_needs_whole_unchanged_book():
 
     ok = run(gold, load_prediction(BOOK)[1])["accuracy"][0]
     assert ok["documents"][0]["compatible"] and ok["documents"][0]["hashes_verified"]
+    assert ok["documents"][0]["hashes_checked"] == ok["documents"][0]["hashes_total"] == 5
     assert ok["structure"][0]["scored"] and ok["structure"][0]["hashes_verified"]
 
 
 def test_document_level_without_hashes_is_reported_unverified(tmp_path):
     acc = run(example_gold(), *load_prediction(metakat(tmp_path)))["accuracy"][0]
     assert acc["documents"][0]["compatible"] and not acc["documents"][0]["hashes_verified"]
+    assert acc["documents"][0]["hashes_checked"] == 0
+    assert acc["documents"][0]["hashes_total"] == 5
+    assert acc["bibliography"]["title"]["correct"] == 1
+
+
+def test_partial_gold_manifest_does_not_verify_whole_book_hashes():
+    # The prediction covers the complete book, but the gold subset contains hashes for just two scans.
+    data = example_gold().model_dump(mode="json")
+    data["scans"] = data["scans"][:2]
+    data["structure"] = {"status": "not_reviewed"}  # whole-book structure cannot be gold-verified on a subset
+    partial_gold = GoldBook.model_validate(data)
+    acc = run(partial_gold, load_prediction(BOOK)[1])["accuracy"][0]
+
+    doc = acc["documents"][0]
+    assert doc["compatible"] is True  # unchanged: document-level scoring is still permitted
+    assert doc["hashes_checked"] == 2
+    assert doc["hashes_total"] == 5
+    assert doc["hashes_verified"] is False
     assert acc["bibliography"]["title"]["correct"] == 1
 
 
