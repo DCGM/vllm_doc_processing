@@ -118,8 +118,10 @@ class GoldBook(StrictModel):
         return self
 
 
-def load_gold(path: Path) -> GoldBook:
-    return GoldBook.model_validate_json(path.read_bytes())
+def load_gold(path: Path) -> tuple[GoldBook, str]:
+    """The book and the SHA-256 of exactly the bytes that were parsed."""
+    data = path.read_bytes()
+    return GoldBook.model_validate_json(data), hashlib.sha256(data).hexdigest()
 
 
 def gold_template(

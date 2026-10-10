@@ -15,7 +15,7 @@ vllm-doc evaluate --gold gold/*.json --prediction results/*/book.json --name gpt
 # agreement only, before gold labels exist:
 vllm-doc evaluate --prediction results/*/book.json --comparator data/*.kramerius.json
 ```
-Without `--json`/`--markdown` the Markdown report goes to stdout. Exit code `2` for unreadable or invalid inputs, `1` if a report cannot be written. Different configurations (models, prompts, image-only vs TXT vs ALTO) are evaluated by separate invocations on the same gold files; repeated runs and their variance are outside the tool.
+Without `--json`/`--markdown` the Markdown report goes to stdout. Reports are written atomically (missing directories are created). Exit code `2` for unreadable or invalid inputs, `1` if a report cannot be written. The report records the SHA-256 of exactly the gold and prediction bytes that were parsed. Different configurations (models, prompts, image-only vs TXT vs ALTO) are evaluated by separate invocations on the same gold files; repeated runs and their variance are outside the tool.
 
 ## Gold file (`gold_version` 1)
 One JSON file per book. It is also the **corpus manifest**: it binds the labels to scan IDs, scan order and image hashes, and records available OCR sidecars.
@@ -50,7 +50,7 @@ Formats are detected from the JSON content:
 | Input | Role | Provides |
 |---|---|---|
 | Annotated book (`schema_version` `"0.2"`; other versions are rejected) via `--prediction` | system, two **layers**: `observed` (`scans[].observation`) and `resolved` (if reconciled) | observed: `page_type`, `side`, `leaf`, printed numbers. resolved: `page_type`, `side`, `leaf`, `page_number`, bibliography, structure. Plus run provenance. |
-| MetakatIO JSON (`batch_id`, `elements`) via `--comparator` | comparator `metakat` | per page `pageType`, `side`, `pageNumber`; bibliography from the (at most one) `volume` and `title` element (volume preferred per field); chapters (`title`, level from the `parent_id` chain, `pageIndexStart`, `pageNumber` as TOC reference). Scan IDs: stems of `page_to_image_mapping` file names, else page UUIDs. `pageIndex*` refers to `pageIndex` (or `batch_index` if pages have none). |
+| MetakatIO JSON (`batch_id`, `elements`) via `--comparator` | comparator `metakat` | per page `pageType`, `side`, `pageNumber`; bibliography from the (at most one) `volume` and `title` element (volume preferred per field); chapters (`title`, level from the `parent_id` chain, `pageIndexStart`, `pageNumber` as TOC reference). Scan IDs: stems of `page_to_image_mapping` file names, else page UUIDs. Scan index and chapter `pageIndex*` refer to `pageIndex` (or `batch_index` if pages have none). Null values in MetaKat tuples are dropped; a chapter `parent_id` cycle is an error. |
 | `*.kramerius.json` of `scripts/kramerius_order.py` via `--comparator` | comparator `kramerius` | per page `page_type`, `page_number` (NDK label). No side, leaf, printed numbers, bibliography or structure. |
 
 Fields a system/layer never outputs are listed as `fields_not_provided` and not scored. A scan record whose observation failed provides no values (`no_prediction`), which differs from a predicted `null` ("unknown"/"none").
@@ -58,7 +58,8 @@ Fields a system/layer never outputs are listed as `fields_not_provided` and not 
 ### Vocabulary mapping (explicit, never silently equal)
 - **Page types:** case-insensitive match to NDK values, so MetaKat PascalCase (`TitlePage`, `FlyLeaf`) and Kramerius' mixed spellings map to `titlePage`, `flyleaf`. Values without an NDK page type (`Abstract`, `Obituary`, `CalibrationTable`, `CustomInclude`, `FragmentsOfBookbinding`, unknown strings) become **incomparable**: counted, listed under `incomparable_values`, never correct. `null` is an "unknown" prediction.
 - **Side:** MetaKat `left`/`right` map directly; `single_page` has no equivalent in `left|right|both|null` and is incomparable.
-- **Page labels:** whitespace removed, otherwise exact (brackets and roman case matter, as in NDK).
+- **Page labels:** whitespace removed, otherwise exact (brackets and roman case matter, as in NDK). On import from Kramerius/MetaKat the older notation for unprinted numbers in round brackets is rewritten to NDK square brackets per page (`(171a)` → `[171a]`, `(4),5` → `[4],5`); leaf numbering (`A 1r`) is kept and does not match labels of this tool.
+- **Empty lists** (no printed numbers, no bibliography values) are the same as `null`, also inside `alternatives`.
 - **Printed numbers:** `printed_numbers_exact` compares the multiset of raw strings; `printed_numbers_normalized` strips brackets/dots/dashes, drops leading zeros and canonicalizes roman numerals (`[xii].` → `XII`).
 - **Bibliography:** compared as sets of normalized strings (Unicode NFC, case-folded, whitespace collapsed, outer punctuation removed; diacritics kept).
 - **Chapters:** gold chapters are matched to predicted chapters by normalized title (first unused equal title).
@@ -80,7 +81,7 @@ Per field, each gold item gets one outcome:
 
 `eligible` = all outcomes above; `scored` = the first four; `accuracy` = correct / scored; `coverage` = scored / eligible. `not_reviewed` items are not eligible; `by_reference_status` breaks results down by gold status (e.g. how often `absent` printed numbers were correctly left empty). Accuracy/coverage are `null` when nothing was scored. Hashes are checked when both sides have them (MetaKat/Kramerius have none: `hash_unchecked`); `scan_index_differs` counts scans whose order differs.
 
-Structure (only `verified`, `absent` or `not_applicable` gold structure of a complete book): title recall/precision, start-scan accuracy for matched chapters with a gold start, level accuracy, TOC reference accuracy (normalized numbers), recall/precision of the set of chapter start scans, and lists of unmatched titles and wrong starts/references. `prediction_covers_book` is false if the prediction lacks some scans (e.g. `--max-pages`).
+Structure (only `verified`, `absent` or `not_applicable` gold structure of a complete book): title recall/precision, start-scan accuracy for matched chapters with a gold start, level accuracy, TOC reference accuracy (normalized numbers), recall/precision of the set of chapter start scans, and lists of unmatched titles and wrong starts/references. `prediction_covers_book` is false if the prediction lacks some scans (e.g. `--max-pages`). For a book verified to have no chapters, `no_chapters_correct` says whether the prediction has none.
 
 **Agreement** (`agreement[]`): each `--prediction` layer against each comparator, over the comparator's scans, for `page_type`, `side`, `leaf`, `page_number` and bibliography. The comparator's non-null values act as reference; its nulls are not compared, its incomparable values are counted as `incomparable`. Reported as `agreeing`/`agreement`, never accuracy.
 

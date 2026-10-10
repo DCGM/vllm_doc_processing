@@ -128,6 +128,13 @@ def normalize_label(label: str) -> str:
     return re.sub(r"\s+", "", label)
 
 
+def library_label(label: str | None) -> str | None:
+    """Kramerius/MetaKat label in NDK notation: older records write unprinted numbers as '(12)' for '[12]'."""
+    if not label:
+        return None
+    return ",".join(re.sub(r"^\((.+)\)$", r"[\1]", part.strip()) for part in label.split(","))
+
+
 # --- Loading ------------------------------------------------------------------
 
 
@@ -255,10 +262,11 @@ def from_metakat(data: dict, path: str, sha: str, system: str) -> Prediction:
             values = {
                 "page_type": page_type(_first(p.get("pageType"))),
                 "side": metakat_side(_first(p.get("side"))),
-                "page_number": _first(p.get("pageNumber")) or None,
+                "page_number": library_label(_first(p.get("pageNumber"))),
             }
-            scans[scan_id] = PredictedScan(scan_id, p["batch_index"], None, values)
-            by_index[p["pageIndex"] if use_page_index else p["batch_index"]] = scan_id
+            index = p["pageIndex"] if use_page_index else p["batch_index"]
+            scans[scan_id] = PredictedScan(scan_id, index, None, values)
+            by_index[index] = scan_id
 
         volumes = [e for e in elements if e["type"] == "volume"]
         titles = [e for e in elements if e["type"] == "title"]
@@ -269,7 +277,7 @@ def from_metakat(data: dict, path: str, sha: str, system: str) -> Prediction:
             source = next((e for e in volumes + titles if e.get(key)), None)
             value = source.get(key) if source else None
             items = value if value and isinstance(value[0], list) else [value] if value else []
-            biblio[name] = [v[0] for v in items]
+            biblio[name] = [v[0] for v in items if v and v[0]]
 
         chapters = [e for e in elements if e["type"] == "chapter"]
         parents = {c["id"]: c.get("parent_id") for c in chapters}
@@ -278,6 +286,8 @@ def from_metakat(data: dict, path: str, sha: str, system: str) -> Prediction:
             n = 1
             while parents.get(chapter_id) in parents:
                 chapter_id, n = parents[chapter_id], n + 1
+                if n > len(parents):
+                    raise PredictionError(f"{path}: chapter parent_id cycle at {chapter_id!r}")
             return n
 
         structure = [
@@ -303,7 +313,7 @@ def from_kramerius(data: dict, path: str, sha: str, system: str) -> Prediction:
                 p["scan_id"],
                 p["scan_index"],
                 None,
-                {"page_type": page_type(p.get("page_type")), "page_number": p.get("page_number") or None},
+                {"page_type": page_type(p.get("page_type")), "page_number": library_label(p.get("page_number"))},
             )
             for p in data["pages"]
         }

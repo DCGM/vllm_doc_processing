@@ -316,7 +316,10 @@ def run_evaluate(args: argparse.Namespace) -> int:
     if not (args.gold or (args.prediction and args.comparator)):
         raise ConfigError("give --gold files, or both --prediction and --comparator files for agreement only")
     try:
-        gold = [(str(p), load_gold(p)) for p in args.gold]
+        gold = []
+        for path in args.gold:
+            book, sha = load_gold(path)
+            gold.append((str(path), sha, book))
         systems = [x for p in args.prediction for x in load_prediction(p, args.name)]
         comparators = [x for p in args.comparator for x in load_prediction(p)]
         if wrong := [x.path for x in systems if x.role != "system"] + [x.path for x in comparators if x.role != "comparator"]:
@@ -327,9 +330,9 @@ def run_evaluate(args: argparse.Namespace) -> int:
     markdown = to_markdown(report)
     try:
         if args.json:
-            args.json.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            write_atomic(args.json, json.dumps(report, indent=2, ensure_ascii=False) + "\n")
         if args.markdown:
-            args.markdown.write_text(markdown, encoding="utf-8")
+            write_atomic(args.markdown, markdown)
     except OSError as exc:
         print(f"vllm-doc: error: cannot write report: {exc}", file=sys.stderr)
         return EXIT_RUNTIME
@@ -348,8 +351,13 @@ def run_gold_template(args: argparse.Namespace) -> int:
     inventory = _inventory(args.input, order_file, None)
     book_id = args.book_id or args.input.resolve().name
     gold = gold_template(inventory, book_id, args.source, args.txt_dir, args.alto_dir)
-    with args.output.open("x", encoding="utf-8") as f:
-        f.write(gold.model_dump_json(indent=2) + "\n")
+    try:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        with args.output.open("x", encoding="utf-8") as f:
+            f.write(gold.model_dump_json(indent=2) + "\n")
+    except OSError as exc:
+        print(f"vllm-doc: error: cannot write {args.output}: {exc}", file=sys.stderr)
+        return EXIT_RUNTIME
     sidecars = sum(bool(s.txt) for s in gold.scans), sum(bool(s.alto) for s in gold.scans)
     print(f"vllm-doc: wrote {args.output}: {len(gold.scans)} scans, TXT {sidecars[0]}, ALTO {sidecars[1]}", file=sys.stderr)
     return 0

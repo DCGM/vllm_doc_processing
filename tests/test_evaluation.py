@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 from vllm_doc_processing.cli import EXIT_CONFIG, main
 from vllm_doc_processing.evaluation import evaluate, to_markdown
-from vllm_doc_processing.gold import GoldBook, load_gold
+from vllm_doc_processing.gold import GoldBook, GoldChapter, GoldValue, load_gold
 from vllm_doc_processing.predictions import Incomparable, load_prediction, normalize_number, page_type
 
 EXAMPLES = Path(__file__).parents[1] / "examples"
@@ -26,12 +26,11 @@ def scan(i, **labels):
 
 
 def run(gold, *preds, comparators=()):
-    return evaluate([("gold.json", gold)] if gold else [], list(preds), list(comparators))
+    return evaluate([("gold.json", "-", gold)] if gold else [], list(preds), list(comparators))
 
 
-@pytest.fixture(autouse=True)
-def _no_hash_of_fake_gold(monkeypatch):
-    monkeypatch.setattr("vllm_doc_processing.evaluation._sha", lambda path: "-")
+def example_gold() -> GoldBook:
+    return load_gold(GOLD)[0]
 
 
 def test_gold_status_rules():
@@ -41,7 +40,7 @@ def test_gold_status_rules():
         gold_book([scan(1, page_type={"status": "not_reviewed", "value": "blank"})])
     with pytest.raises(ValidationError, match="every scan"):
         gold_book([scan(1)], structure={"status": "verified", "value": [{"title": "A"}]})
-    assert load_gold(GOLD).complete
+    assert example_gold().complete
 
 
 def test_null_vs_unreviewed_and_denominators():
@@ -52,7 +51,7 @@ def test_null_vs_unreviewed_and_denominators():
             scan(2, printed_numbers={"status": "verified", "value": ["3"]}),  # pred none: missing_value
             scan(3, printed_numbers={"status": "not_reviewed"}, side={"status": "ambiguous"}),  # never scored
             scan(4, printed_numbers={"status": "absent"}),  # pred ['v','vi']: spurious_value
-            scan(5, printed_numbers={"status": "ambiguous", "alternatives": [["1", "2"], None]}),
+            scan(5, printed_numbers={"status": "ambiguous", "alternatives": [["1", "2"], []]}),
         ]
     )
     observed = next(a for a in run(gold, *book)["accuracy"] if a["layer"] == "observed")
@@ -98,11 +97,12 @@ def metakat(tmp_path):
         "page_to_image_mapping": {f"p{i}": f"{P}{i + 1}.jpg" for i in range(5)},
         "elements": [
             page(0, "FrontCover", "single_page", "[Ia]"),
-            page(1, "Abstract", "right", "[I]"),
+            page(1, "Abstract", "right", "(I)"),
             page(2, "Impressum", "left", None),
             page(3, "TableOfContents", "left", "V,VI"),
             page(4, "NormalPage", "right", "1,2"),
-            {"type": "volume", "id": "v", "title": ["Cesty po Šumavě", 0.9, "d"], "author": [["Jan Žlutický", 0.9, "d"]]},
+            {"type": "volume", "id": "v", "title": ["Cesty po Šumavě", 0.9, "d"],
+             "author": [["Jan Žlutický", 0.9, "d"], [None, 0.1, "d"]], "publisher": [None, 0.0, "d"]},
             {"type": "chapter", "id": "c1", "parent_id": "v", "title": ["Na cestě", 0.9, "d"], "pageIndexStart": 14},
             {"type": "chapter", "id": "c2", "parent_id": "c1", "title": ["U Černého jezera", 0.9, "d"]},
         ],
@@ -119,6 +119,9 @@ def test_metakat_import_maps_explicitly(tmp_path):
     assert s[P + "1"].values["page_type"] == "frontCover"
     assert s[P + "1"].values["side"] == Incomparable("single_page")
     assert s[P + "2"].values["page_type"] == Incomparable("Abstract")
+    assert s[P + "2"].values["page_number"] == "[I]"  # older '(I)' notation for an unprinted number
+    assert s[P + "2"].scan_index == 11  # pageIndex
+    assert mk.bibliography["publisher"] == []  # null MetaKat values are dropped
     assert mk.bibliography["title"] == ["Cesty po Šumavě"] and mk.bibliography["author"] == ["Jan Žlutický"]
     assert [(c.title, c.level, c.start_scan_id) for c in mk.structure] == [
         ("Na cestě", 1, P + "5"),
@@ -135,7 +138,7 @@ def test_gold_accuracy_separate_from_agreement(tmp_path):
     kramerius.write_text(json.dumps({"source": "x", "document": {"pid": "uuid:k"}, "pages": pages}))
     preds = load_prediction(BOOK)
     comps = load_prediction(metakat(tmp_path)) + load_prediction(kramerius)
-    report = run(load_gold(GOLD), *preds, comparators=comps)
+    report = run(example_gold(), *preds, comparators=comps)
 
     systems = {(a["system"], a["layer"]) for a in report["accuracy"]}
     assert systems == {("vllm-doc", "observed"), ("vllm-doc", "resolved"), ("metakat", "reference"),
@@ -158,13 +161,12 @@ def test_gold_accuracy_separate_from_agreement(tmp_path):
 
 
 def test_structure_scoring():
-    structure = run(load_gold(GOLD), *load_prediction(BOOK))["accuracy"][1]["structure"][0]
+    structure = run(example_gold(), *load_prediction(BOOK))["accuracy"][1]["structure"][0]
     assert structure["title_recall"] == 1.0 and structure["start_scan_correct"] == 2
     assert structure["wrong_toc_references"] == [{"title": "Předmluva", "reference": "V", "predicted": "vi"}]
 
 
-def test_cli_reports_are_deterministic(tmp_path, monkeypatch):
-    monkeypatch.undo()
+def test_cli_reports_are_deterministic(tmp_path):
     argv = ["evaluate", "--gold", str(GOLD), "--prediction", str(BOOK), "--comparator", str(metakat(tmp_path))]
     outputs = []
     for n in (1, 2):
@@ -188,11 +190,27 @@ def test_gold_template(tmp_path):
     ocr = tmp_path / "ocr"
     ocr.mkdir()
     (ocr / "a.txt").write_text("Kapitola první\n", encoding="utf-8")
-    out = tmp_path / "gold.json"
+    out = tmp_path / "new-dir" / "gold.json"
     argv = ["gold-template", "--input", str(book), "--output", str(out), "--txt-dir", str(ocr)]
     assert main(argv) == 0
-    gold = load_gold(out)
+    gold, sha = load_gold(out)
     assert [(s.scan_id, s.scan_index, bool(s.txt)) for s in gold.scans] == [("b", 0, False), ("a", 1, True)]
     assert all(s.page_type.status == "not_reviewed" for s in gold.scans) and gold.complete
-    assert evaluate([(str(out), gold)], [], [])["gold_status_counts"]["page_type"] == {"not_reviewed": 2}
+    assert evaluate([(str(out), sha, gold)], [], [])["gold_status_counts"]["page_type"] == {"not_reviewed": 2}
     assert main(argv) == EXIT_CONFIG  # never overwrites annotations
+
+
+def test_metakat_chapter_cycle_is_an_error(tmp_path):
+    data = {"batch_id": "b", "elements": [
+        {"type": "chapter", "id": "c1", "parent_id": "c2"}, {"type": "chapter", "id": "c2", "parent_id": "c1"}]}
+    path = tmp_path / "mk.json"
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="cycle"):
+        load_prediction(path)
+
+
+def test_absent_structure_scored_correct():
+    gold = example_gold().model_copy(update={"structure": GoldValue[list[GoldChapter]](status="absent")})
+    book = load_prediction(BOOK)[1]
+    book.structure = []
+    assert run(gold, book)["accuracy"][0]["structure"][0]["no_chapters_correct"] is True
