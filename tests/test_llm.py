@@ -59,7 +59,7 @@ class FakeClient:
     def create(self, **kwargs):
         self.requests.append(kwargs)
         outcome = self.outcomes.pop(0)
-        if isinstance(outcome, Exception):
+        if isinstance(outcome, BaseException):
             raise outcome
         return outcome
 

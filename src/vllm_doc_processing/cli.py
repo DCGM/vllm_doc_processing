@@ -11,14 +11,18 @@ from pathlib import Path
 from typing import Any
 
 from .config import API_KEY_ENV, Config, ConfigError, api_key, build_config, read_config_file, require_api_key
-from .images import Inventory, build_inventory
+from .checkpoint import load_checkpoint, run_identity, write_atomic
+from .images import Inventory, build_inventory, read_order_file
 from .llm import LLMClient, LLMError
-from .models import CallRecord, UsageTotals
+from .models import CallRecord, UsageTotals, dump_json
 from .observe import observe_scan
+from .pipeline import process_book
 from .prompts import PROMPT_VERSIONS
+from .reconcile import ReconcileError
 
 EXIT_CONFIG = 2
 EXIT_RUNTIME = 1
+EXIT_INTERRUPTED = 130
 
 
 def _tool_version() -> str:
@@ -43,7 +47,24 @@ def build_parser() -> argparse.ArgumentParser:
     _add_config_args(p)
     p.add_argument("--postprocess-model", help="text model ID for reconciliation (default: --model)")
     p.add_argument("--max-pages", type=int, metavar="N", help="process only the first N scans of the order file")
-    p.add_argument("--dry-run", action="store_true", help="validate configuration, paths and scan images, print the effective settings, make no API calls (a missing API key is only a warning)")
+    p.add_argument(
+        "--checkpoint",
+        type=Path,
+        metavar="PATH",
+        help="observation checkpoint, saved after every scan (default: OUTPUT with suffix .checkpoint.json)",
+    )
+    restart = p.add_mutually_exclusive_group()
+    restart.add_argument(
+        "--resume",
+        action="store_true",
+        help="continue from the checkpoint: observe only scans without an observation, then reconcile again; "
+        "fails if images, order file or observation settings changed",
+    )
+    restart.add_argument("--fresh", action="store_true", help="discard an existing checkpoint and start over")
+    p.add_argument(
+        "--skip-postprocess", action="store_true", help="skip reconciliation; write observations only (resolved: null)"
+    )
+    p.add_argument("--dry-run", action="store_true", help="validate configuration, paths, scan images and (with --resume) the checkpoint, print the effective settings, make no API calls (a missing API key is only a warning)")
 
     o = sub.add_parser(
         "observe",
@@ -97,16 +118,20 @@ def _order_file(args: argparse.Namespace) -> Path:
     return order_file
 
 
-def _check_paths(args: argparse.Namespace) -> Path:
-    """Validate input/output locations; return the order file path."""
+def _check_paths(args: argparse.Namespace) -> tuple[Path, Path]:
+    """Validate input/output/checkpoint locations; return the order file and checkpoint paths."""
     book_dir: Path = args.input
     order_file = _order_file(args)
     output: Path = args.output
-    if output.is_dir():
-        raise ConfigError(f"output path is a directory: {output}")
-    if output.resolve().is_relative_to(book_dir.resolve()):
-        raise ConfigError(f"output must not be written into the input directory: {output}")
-    return order_file
+    checkpoint: Path = args.checkpoint or output.with_name(output.stem + ".checkpoint.json")
+    for what, path in (("output", output), ("checkpoint", checkpoint)):
+        if path.is_dir():
+            raise ConfigError(f"{what} path is a directory: {path}")
+        if path.resolve().is_relative_to(book_dir.resolve()):
+            raise ConfigError(f"{what} must not be written into the input directory: {path}")
+    if checkpoint.resolve() == output.resolve():
+        raise ConfigError("checkpoint and output must be different files")
+    return order_file, checkpoint
 
 
 def _inventory(
@@ -124,11 +149,15 @@ def _inventory(
 
 def run_process(args: argparse.Namespace) -> int:
     config = _load_config(args, postprocess_model=args.postprocess_model, max_pages=args.max_pages)
-    order_file = _check_paths(args)
+    order_file, checkpoint_path = _check_paths(args)
     if not args.dry_run:
         require_api_key(config)
 
     inventory = _inventory(args.input, order_file, config.max_pages)
+    identity = run_identity(config, inventory, read_order_file(order_file))
+    resume_from = load_checkpoint(checkpoint_path, identity, inventory) if args.resume else None
+    if checkpoint_path.exists() and not (args.resume or args.fresh):
+        raise ConfigError(f"checkpoint {checkpoint_path} exists; pass --resume to continue it or --fresh to start over")
 
     if args.dry_run:
         key_set = api_key(config) is not None
@@ -138,6 +167,7 @@ def run_process(args: argparse.Namespace) -> int:
             "input": str(args.input),
             "order_file": str(order_file),
             "output": str(args.output),
+            "checkpoint": str(checkpoint_path),
             "config": config.model_dump(),
             "effective_base_url": config.effective_base_url,
             "effective_postprocess_model": config.effective_postprocess_model,
@@ -146,12 +176,48 @@ def run_process(args: argparse.Namespace) -> int:
             "listed_scans": inventory.total_listed,
             "selected_scans": len(inventory.scans),
             "unlisted_images": inventory.unlisted,
+            "checkpoint_exists": checkpoint_path.exists(),
         }
+        if resume_from:
+            summary["checkpoint_observed_scans"] = sum(s.observation is not None for s in resume_from.book.scans)
+            summary["checkpoint_totals"] = resume_from.book.run.totals.model_dump()
         print(json.dumps(summary, indent=2))
         return 0
 
-    print("vllm-doc: error: processing is not implemented yet; use --dry-run", file=sys.stderr)
-    return EXIT_RUNTIME
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s", stream=sys.stderr)
+    client = LLMClient(config)
+    try:
+        book = process_book(
+            client,
+            inventory,
+            order_file,
+            checkpoint_path,
+            identity,
+            resume_from=resume_from,
+            skip_postprocess=args.skip_postprocess,
+        )
+    except (LLMError, ReconcileError) as exc:
+        print(f"vllm-doc: error: {exc}", file=sys.stderr)
+        print(f"vllm-doc: observations are kept in {checkpoint_path}; no output written; continue with --resume", file=sys.stderr)
+        return EXIT_RUNTIME
+    except KeyboardInterrupt:
+        print(f"\nvllm-doc: interrupted; completed scans are kept in {checkpoint_path}; continue with --resume", file=sys.stderr)
+        return EXIT_INTERRUPTED
+    book.run.tool_version = _tool_version()
+    write_atomic(args.output, dump_json(book))
+
+    observed = sum(s.observation is not None for s in book.scans)
+    print(
+        f"vllm-doc: {observed}/{len(book.scans)} scan(s) observed, "
+        f"{'reconciled' if book.resolved else 'not reconciled'}; wrote {args.output}; {book.run.totals.model_dump_json()}",
+        file=sys.stderr,
+    )
+    for warning in book.run.warnings:
+        print(f"vllm-doc: warning: {warning}", file=sys.stderr)
+    if observed < len(book.scans):
+        print("vllm-doc: retry the failed scans with --resume", file=sys.stderr)
+        return EXIT_RUNTIME
+    return 0
 
 
 def run_observe(args: argparse.Namespace) -> int:
