@@ -3,7 +3,7 @@
 ## Goal and boundaries
 Determine whether remotely hosted vision-language models can approximate MetaKat-level annotations for digitized **books** in an inexpensive, small Python CLI. Input is a directory of ordered scans; output is one custom JSON. This is a feasibility experiment, **not** a replacement for MetaKat or a generalized document AI platform.
 
-In scope: monographs/volumes; bibliographic fields, page-type labels, scan side (left/right/both), observed printed numbers, logical chapter hierarchy and TOC references; structured evidence and provenance. Out of scope initially: periodicals, newspapers, articles, full text transcription/OCR, ALTO import, bounding-box detection, METS/MODS export, UI, database, distributed workers and training.
+In scope: monographs/volumes; bibliographic fields, page-type labels, scan side (left/right/both), observed printed numbers, logical chapter hierarchy and TOC references; structured evidence and provenance. Out of scope initially: periodicals, newspapers, articles, full text transcription/running OCR, coordinate-aware ALTO layout, bounding-box detection, METS/MODS export, UI, database, distributed workers and training.
 
 ## Architectural decisions
 1. **Python >=3.11, CLI only.** Keep install dependencies small: `openai`, `pydantic`, `Pillow`. Use `argparse`; optional testing tools in a dev extra.
@@ -62,6 +62,8 @@ Implemented by #2: `--config config.json` (precedence defaults < file < CLI), `-
 - #9 Optional small-to-large model escalation
 - #10 Evaluation framework (gold annotations, MetaKat/Kramerius as comparators) and benchmark
 - #11 Selective postprocessing image revisits
+
+**Phase 2:** #14 Optional pre-existing OCR sidecars (TXT / ALTO) as bounded text next to the image.
 
 Prefer delivering #1–#6 before polishing optional features, and record a run on a small real book at #8. Implementation issues are autonomous work units and should use separate, small PRs.
 

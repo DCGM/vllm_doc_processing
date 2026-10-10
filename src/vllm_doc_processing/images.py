@@ -10,7 +10,7 @@ import base64
 import hashlib
 import io
 from collections.abc import Collection
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
@@ -104,6 +104,10 @@ class Inventory:
     unlisted: list[str]
     """Supported image files in ``book_dir`` that the order file does not list (not processed)."""
     total_listed: int
+    ocr_dir: Path | None = None
+    """Directory of the OCR sidecars attached by ``ocr.attach_ocr``; None = image-only."""
+    ocr_texts: dict[str, str] = field(default_factory=dict)
+    """Bounded OCR text to send with each scan that has a sidecar, by scan ID."""
 
     def path(self, scan: ScanRecord) -> Path:
         return self.book_dir / scan.filename

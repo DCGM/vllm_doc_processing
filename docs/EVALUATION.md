@@ -49,7 +49,7 @@ Formats are detected from the JSON content:
 
 | Input | Role | Provides |
 |---|---|---|
-| Annotated book (`schema_version` `"0.2"`; other versions are rejected) via `--prediction` | system, two **layers**: `observed` (`scans[].observation`) and `resolved` (if reconciled) | observed: `page_type`, `side`, `leaf`, printed numbers. resolved: `page_type`, `side`, `leaf`, `page_number`, bibliography, structure. Plus run provenance. |
+| Annotated book (`schema_version` `"0.3"`, or `"0.2"` from image-only runs before #14; other versions are rejected) via `--prediction` | system, two **layers**: `observed` (`scans[].observation`) and `resolved` (if reconciled) | observed: `page_type`, `side`, `leaf`, printed numbers. resolved: `page_type`, `side`, `leaf`, `page_number`, bibliography, structure. Plus run provenance. |
 | MetakatIO JSON (`batch_id`, `elements`) via `--comparator` | comparator `metakat` | per page `pageType`, `side`, `pageNumber`; bibliography from the (at most one) `volume` and `title` element (volume preferred per field); chapters (`title`, level from the `parent_id` chain, `pageIndexStart`, `pageNumber` as TOC reference). Scan IDs: stems of `page_to_image_mapping` file names, else page UUIDs. Scan index and chapter `pageIndex*` refer to `pageIndex` (or `batch_index` if pages have none). Null values in MetaKat tuples are dropped; a chapter `parent_id` cycle is an error. |
 | `*.kramerius.json` of `scripts/kramerius_order.py` via `--comparator` | comparator `kramerius` | per page `page_type`, `page_number` (NDK label). No side, leaf, printed numbers, bibliography or structure. |
 
@@ -92,7 +92,7 @@ Structure (only `verified`, `absent` or `not_applicable` gold structure of a com
 JSON (`--json`) and Markdown (`--markdown`) are deterministic for the same inputs (no timestamps):
 - `evaluator_version`; `inputs` with paths, SHA-256 of every gold and prediction file, book IDs, gold/dataset versions;
 - `gold_status_counts` per field and status;
-- `provenance` per system: per output file vision/postprocess model, provider, served models, prompt/context/schema versions, image policy, context settings, OCR mode (`image-only` unless the run parameters contain `ocr*` settings), start/finish/duration, summed latency, usage/cost totals, retry attempts, error rate, unobserved scans, reconciliation warnings; plus summed `usage`;
+- `provenance` per system: per output file vision/postprocess model, provider, served models, prompt/context/schema versions, image policy, context settings, OCR mode (`image-only`, or with an OCR directory `{format, max_chars, txt, alto, missing, truncated}`: the settings and how many scans got TXT or ALTO text, none, or shortened text), start/finish/duration, summed latency, usage/cost totals, retry attempts, error rate, unobserved scans, reconciliation warnings; plus summed `usage`;
 - `incomparable_values` per system and field;
 - `accuracy[]` per system and layer: `scans` summary, `documents` (document checks), `fields`, `bibliography`, `structure`, and every non-correct item in `errors` (`book_id`, `scan_id`, `scan_index`, `field`, `outcome`, `reference_status`, `reference`, `predicted`); Markdown shows the first 100 per section;
 - `agreement[]` with `disagreements`.

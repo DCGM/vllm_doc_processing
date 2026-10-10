@@ -14,6 +14,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, field_validator, model_validator
 
 Provider = Literal["openai", "openrouter"]
+OcrFormat = Literal["auto", "txt", "alto"]
 
 DEFAULT_BASE_URLS: dict[str, str] = {
     "openai": "https://api.openai.com/v1",
@@ -67,6 +68,13 @@ class Config(BaseModel):
     )
     context_max_chars: int = Field(
         default=2000, ge=200, description="Hard limit on the length of the earlier-scan context text."
+    )
+    ocr_format: OcrFormat = Field(
+        default="auto",
+        description="Sidecars read from the OCR directory: <scan_id>.txt, <scan_id>.xml (ALTO) or either (auto).",
+    )
+    ocr_max_chars: int = Field(
+        default=6000, ge=200, description="Longest OCR text sent with one scan; longer texts lose their middle part."
     )
     reconcile_max_chars: int = Field(
         default=100_000, ge=1000, description="Longest reconciliation input text; longer books fail before the request."

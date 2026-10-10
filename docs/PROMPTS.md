@@ -10,6 +10,8 @@ Scan position: 5 of 120 in physical scanning order (not a page number).
 Context from earlier scans (automatic, may contain errors):
 <bounded summary from #6; omitted when empty>
 
+<OCR text of this scan, only with --ocr-dir and a sidecar; see below>
+
 Annotate the attached scan.
 ```
 The response must be a `ScanObservation` (docs/OUTPUT_SCHEMA.md). The system prompt:
@@ -50,6 +52,17 @@ Sections, in priority order: the current document state — the latest printed n
 **Bounding rule:** quoted values are cut to 80 characters; at most 3 values per bibliographic field, the last 5 numbered scans, 4 heading levels, 2 numbering irregularities, 5 failed scans and `context_recent_scans` previous-scan lines are shown. If the text is still longer than `context_max_chars`, the oldest previous-scan lines are dropped first, then bibliographic fields from the least important one (if all are dropped, the section says so), then whole lines from the end. The document state therefore survives a crowded title page, and the context never exceeds `context_max_chars` (default 2000 characters ≈ 500–700 tokens), however long the book.
 
 The observation system prompt already tells the model that the context is automatic, may be wrong and must not be copied into the observation; whether the context improves or degrades observations has not been measured yet.
+
+## OCR text (issue #14)
+With `--ocr-dir`, a scan that has an OCR sidecar gets its normalized OCR text (README, *Optional OCR sidecars*) in the user message, after the context; the system prompt is unchanged, so image-only requests are exactly as before. The block (`prompts.OCR_INSTRUCTIONS`, version `run.prompt_versions.ocr`):
+```text
+OCR text of this scan (produced automatically from the same image; it may contain misread characters, missing or extra text, wrong reading order and text from neighbouring pages or show-through):
+<ocr>
+...
+</ocr>
+Use the OCR text only as fallible help for reading the image (spelling, diacritics, small print). The image is authoritative: where they disagree, follow the image, and never report text that is not visible in the image. A line "[... N characters of OCR text omitted ...]" marks a shortened text, not page content.
+```
+An empty OCR text is sent as `(no text recognised)`; a scan without a sidecar gets no OCR block. **Bounding rule:** texts longer than `ocr_max_chars` (default 6000 ≈ 1500–2500 tokens) keep their first two thirds and last third of the budget, cut at line breaks, with the omission marker between them, so headers, page numbers and footers survive. Only the current scan's OCR is ever sent. Whether OCR improves observations, and at what token cost, is to be measured with `vllm-doc evaluate` (image-only vs image+TXT vs image+ALTO on the same scans and model).
 
 ## Document-wide reconciliation (issue #7)
 `reconcile.reconcile_book` runs after all scans are observed and fills `resolved`; `scans[].observation` is never modified. The LLM does only what needs judgement or language understanding, and everything it returns is checked against the observations. The conventions follow the Czech NDK rules for describing monographs ([Pravidla pro popis monografií 2.4](https://standardy.ndk.cz/ndk/standardy-digitalizace/ppp_mono_2.4_final.pdf/at_download/file), "PPM"), which the MetaKat/Kramerius ground truth also follows.

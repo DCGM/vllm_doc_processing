@@ -9,10 +9,11 @@ Experimental **API-only vision-language model processing of digitized books**. A
 - Provider: direct OpenAI or OpenRouter using OpenAI-compatible APIs; vision model configurable.
 - Output: versioned custom JSON with bibliography, per-scan annotations, printed numbering (separate from scan index) and page labels in Czech NDK notation (`[1a]`, `[4],5`, comparable with MetaKat/Kramerius), page sides/types, chapter hierarchy, evidence, reconciled values and request metrics.
 - Processing: sequential per scan with bounded summary of previously extracted data, followed by a book-level consistency pass.
+- Optional OCR input (#14): existing per-scan OCR sidecars (plain text or ALTO XML) can be sent with each image as bounded, fallible text; no OCR engine is run and the image stays the primary input.
 - Evaluation: offline scoring against human-verified gold annotations; MetaKat and Kramerius outputs are imported as comparators, not ground truth.
 - Optional *later*: small-model-to-large-model escalation, selective image revisits.
 
-Not in the first version: periodicals/newspapers, full OCR/ALTO processing, page-region boxes, a web UI, a server, a database, or production deployment.
+Not in the first version: periodicals/newspapers, running OCR or coordinate-aware ALTO layout, page-region boxes, a web UI, a server, a database, or production deployment.
 
 ## Usage
 ```bash
@@ -39,7 +40,7 @@ vllm-doc process --input /data/scanned-book --output results/book.json \
 4. **Output**: written atomically only at the end, with `run.finished_at` set; `run.warnings` lists scans that were not observed and a skipped reconciliation. Progress (one line per request and per scan, then a summary with tokens and cost) goes to stderr.
 
 The checkpoint (default: the output path with suffix `.checkpoint.json`, e.g. `results/book.checkpoint.json`; `--checkpoint PATH`) holds the observation stage of the book in the output format (`resolved: null`, every API call so far) plus the identity it was made with. It is kept after a successful run. If it exists, a run must say what to do with it:
-- `--resume` observes only scans without an observation (scans not reached yet and scans whose requests failed), then reconciles again; earlier calls stay in `run.calls`, so totals cover the whole run. Resuming a finished run therefore only repeats the reconciliation (e.g. with another `--postprocess-model`). Resume is refused (exit `2`, no request) if anything that shapes the observations changed: the order file, any image (SHA-256), provider/base URL, `model`, image settings, `max_output_tokens`, context settings (if `use_context`), `request_params`, the observation prompt or context version, or the schema version. Reconciliation settings, timeouts/retries and a larger `--max-pages` may change; a smaller one is refused.
+- `--resume` observes only scans without an observation (scans not reached yet and scans whose requests failed), then reconciles again; earlier calls stay in `run.calls`, so totals cover the whole run. Resuming a finished run therefore only repeats the reconciliation (e.g. with another `--postprocess-model`). Resume is refused (exit `2`, no request) if anything that shapes the observations changed: the order file, any image (SHA-256), provider/base URL, `model`, image settings, `max_output_tokens`, context settings (if `use_context`), `request_params`, the observation prompt, context or OCR prompt version, OCR on/off, `ocr_format`, `ocr_max_chars`, any used OCR sidecar (SHA-256, or a sidecar added or removed), or the schema version. Reconciliation settings, timeouts/retries and a larger `--max-pages` may change; a smaller one is refused.
 - `--fresh` discards it and starts over.
 
 Exit codes of `process`: `0` all scans observed and the output written; `1` the output was written but some scans were not observed (retry them with `--resume`), or a request failed so that no output was written (reconciliation failure; the checkpoint keeps everything); `2` invalid arguments, configuration, paths, images or checkpoint; `130` interrupted (Ctrl-C; the checkpoint holds every completed scan, the interrupted request is not recorded).
@@ -56,6 +57,8 @@ Exit codes of `process`: `0` all scans observed and the output written; `1` the 
 | `--model ID` | Vision model for per-scan observation. |
 | `--postprocess-model ID` | Text model for reconciliation; defaults to `--model`. |
 | `--max-pages N` | Process only the first N scans of the order file (cheap experiments). |
+| `--ocr-dir DIR` | Optional existing OCR sidecars, sent as text with each scan's image (see [OCR sidecars](#optional-ocr-sidecars)). |
+| `--ocr-format auto\|txt\|alto` | Which sidecars to use; overrides `ocr_format` (requires `--ocr-dir`). |
 | `--checkpoint PATH` | Observation checkpoint, saved after every scan. Default: OUTPUT with suffix `.checkpoint.json`; must not lie inside `BOOK_DIR`. |
 | `--resume` | Continue from the checkpoint (see above). |
 | `--fresh` | Discard an existing checkpoint and start over. |
@@ -67,7 +70,7 @@ Exit codes of `process`: `0` all scans observed and the output written; `1` the 
 vllm-doc observe --input /data/scanned-book --provider openrouter --model '<vision-model-id>' \
   --scans <scan-id> <scan-id> > observations.jsonl     # or --max-pages N
 ```
-Annotates the selected scans **independently** (no context from other scans) with the observation prompt and prints one JSON line per scan, in scan order: `scan_id`, `scan_index`, `filename`, `model`, `prompt_version`, `observation` (a `ScanObservation`, or `null`), `error` and `calls` (every attempt as a `CallRecord`). Per-call log lines and a usage/cost summary go to stderr. It accepts `--input`, `--order-file`, `--config`, `--provider`, `--base-url`, `--model`; `max_pages` from a config file is ignored. With `--scans` only the selected images are matched and decoded, so other listed scans may be missing or corrupt; scan positions still come from the whole order file. Exit code `1` if any scan failed after retries. Paid: every selected scan is one or more requests. The prompt is described in [docs/PROMPTS.md](docs/PROMPTS.md).
+Annotates the selected scans **independently** (no context from other scans) with the observation prompt and prints one JSON line per scan, in scan order: `scan_id`, `scan_index`, `filename`, `model`, `prompt_version`, `observation` (a `ScanObservation`, or `null`), `error` and `calls` (every attempt as a `CallRecord`). Per-call log lines and a usage/cost summary go to stderr. Each line also has `ocr` (the scan's OCR input metadata, or `null` without `--ocr-dir`). It accepts `--input`, `--order-file`, `--config`, `--provider`, `--base-url`, `--model`, `--ocr-dir`, `--ocr-format`; `max_pages` from a config file is ignored. With `--scans` only the selected images are matched and decoded, so other listed scans may be missing or corrupt; scan positions still come from the whole order file. Exit code `1` if any scan failed after retries. Paid: every selected scan is one or more requests. The prompt is described in [docs/PROMPTS.md](docs/PROMPTS.md).
 
 ### `vllm-doc evaluate` and `vllm-doc gold-template` (offline)
 ```bash
@@ -97,6 +100,8 @@ Precedence: **built-in defaults < `--config` JSON file < command-line flags**. T
 | `use_context` | no | `true`; send a bounded text summary of earlier scans with each scan; `false` observes every scan on its own (for comparing the effect of context) |
 | `context_recent_scans` | no | `5`; number of earlier scans summarized one line each in the text context sent with the next scan (0–50, see [docs/PROMPTS.md](docs/PROMPTS.md#context-from-earlier-scans-issue-6)) |
 | `context_max_chars` | no | `2000`; hard limit on the length of that context text (minimum 200); oldest scan lines are dropped first |
+| `ocr_format` | no | `auto`; with `--ocr-dir`, use `<scan_id>.txt` (UTF-8 text), `<scan_id>.xml` (ALTO) or either (`auto`; both present is an error) |
+| `ocr_max_chars` | no | `6000`; longest OCR text sent with one scan (minimum 200); a longer text keeps its start and end (where running heads and page numbers are) with a visible omission marker in between |
 | `reconcile_max_chars` | no | `100000`; longest allowed text input of the reconciliation request (minimum 1000). A longer book fails before the request with a clear error (splitting is not implemented); raise it if the postprocess model's context allows |
 | `reconcile_max_output_tokens` | no | `16000`; output token cap of the reconciliation request (replaces `max_output_tokens` there, since a long chapter list needs more); `null` = no cap |
 | `request_params` | no | `{}`; extra request body fields, e.g. `{"temperature": 0, "reasoning_effort": "low"}`; with OpenRouter also `provider` routing preferences. `model`, `messages`, `response_format`, `stream`, `n`, `tools`, `tool_choice`, `max_tokens`, `max_completion_tokens` are rejected |
@@ -108,6 +113,13 @@ Precedence: **built-in defaults < `--config` JSON file < command-line flags**. T
 - Recorded width/height are those of the upright image (EXIF orientation applied).
 - Uploads are prepared in memory; originals are never modified. JPEG/PNG/WebP files in RGB or grayscale that need no rotation or downscaling are sent byte-for-byte (including any embedded metadata). Everything else — TIFF, CMYK, 16-bit, transparency, EXIF-rotated or larger than `image_max_side` — is converted to 8-bit RGB/grayscale (high-bit-depth grayscale is scaled by the smallest bit depth holding its maximum, so 12-bit data in 16-bit TIFFs keeps its white), rotated upright, downscaled (never upscaled) and re-encoded as `image_format` without metadata. File names and paths are never part of the upload.
 - `image_max_side` trades legibility of small print against upload size and cost. The default 2048 is a starting point, not a measured optimum: some providers downscale large images internally anyway, while others bill and see more detail at higher resolution. Tune it per model (or `null`) during benchmarking.
+
+### Optional OCR sidecars
+- `--ocr-dir DIR` points to existing OCR results of the same book, one file per scan, matched by the exact scan ID from the order file: `<scan_id>.txt` (UTF-8, optional BOM) or `<scan_id>.xml` (ALTO, any namespace version or none), directly in `DIR`, extension case-insensitive. The directory may be `BOOK_DIR` itself. No OCR is run; source files are only read.
+- A scan without a sidecar is sent as image only (counted in a startup line on stderr and in `run.warnings`). An ambiguous match (`a.txt` + `a.xml` with `ocr_format: auto`, or `a.txt` + `a.TXT`), an unreadable file, invalid UTF-8, malformed XML or a non-ALTO XML stops the run before any request (exit `2`), listing every problem; nothing is silently substituted.
+- ALTO is reduced to text in document order: one line per `TextLine` (`String/@CONTENT` joined by spaces, `HYP` appended), a blank line between `TextBlock`s; coordinates, styles and `SUBS_CONTENT` are ignored. Both formats get normalized line breaks and at most one blank line in a row.
+- Each observation request carries the current image, the bounded context from earlier observations and the OCR text of **that scan only**, cut to `ocr_max_chars`. The prompt calls the OCR fallible and the image authoritative ([docs/PROMPTS.md](docs/PROMPTS.md#ocr-text-issue-14)). OCR of earlier scans is never added to later requests (the context is built from observations only).
+- The output records `source.ocr_directory`, per scan `ocr` (sidecar filename, format, SHA-256, size, normalized and sent length, truncation, or `missing`) and `run.prompt_versions.ocr`; the OCR text itself is not stored in the output, checkpoint or logs. Observations are not attributed to OCR. Without `--ocr-dir` requests and output are as before (image-only).
 
 Credentials are read **only** from the environment: `OPENAI_API_KEY` for `openai`, `OPENROUTER_API_KEY` for `openrouter`; an `api_key` entry in the config file is an error. A custom `base_url` still uses the selected provider's key variable. If `--provider` overrides a different provider from the config file, the file's `base_url` is discarded (the new provider's default is used unless `--base-url` is also given), so a key is never sent to another provider's endpoint. Exit codes: `0` success, `2` invalid arguments, configuration or paths, `1` runtime failure.
 

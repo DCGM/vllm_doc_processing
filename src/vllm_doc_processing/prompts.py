@@ -175,13 +175,34 @@ OBSERVE_SYSTEM = OBSERVE_SYSTEM.format(
 )
 
 
-def observe_user_prompt(scan_index: int, scan_count: int, context: str | None = None) -> str:
-    """User message accompanying the scan image; ``context`` is the bounded summary of earlier scans."""
+OCR_PROMPT_NUMBER = 1
+"""Bump on any intended change of ``OCR_INSTRUCTIONS`` or of the OCR text normalization (``ocr.py``)."""
+
+OCR_INSTRUCTIONS = """\
+OCR text of this scan (produced automatically from the same image; it may contain misread \
+characters, missing or extra text, wrong reading order and text from neighbouring pages or \
+show-through):
+<ocr>
+{ocr_text}
+</ocr>
+Use the OCR text only as fallible help for reading the image (spelling, diacritics, small print). \
+The image is authoritative: where they disagree, follow the image, and never report text that is \
+not visible in the image. A line "[... N characters of OCR text omitted ...]" marks a shortened \
+text, not page content."""
+
+
+def observe_user_prompt(
+    scan_index: int, scan_count: int, context: str | None = None, ocr_text: str | None = None
+) -> str:
+    """User message accompanying the scan image; ``context`` is the bounded summary of earlier scans,
+    ``ocr_text`` the bounded OCR text of this scan only (None: no OCR sidecar, nothing is said)."""
     parts = [
         f"Scan position: {scan_index + 1} of {scan_count} in physical scanning order (not a page number).",
     ]
     if context:
         parts.append(f"Context from earlier scans (automatic, may contain errors):\n{context}")
+    if ocr_text is not None:
+        parts.append(OCR_INSTRUCTIONS.format(ocr_text=ocr_text or "(no text recognised)"))
     parts.append("Annotate the attached scan.")
     return "\n\n".join(parts)
 
@@ -281,5 +302,6 @@ def _version(number: int, text: str) -> str:
 PROMPT_VERSIONS: dict[str, str] = {
     "observe": _version(OBSERVE_PROMPT_NUMBER, OBSERVE_SYSTEM + observe_user_prompt(0, 1, "{context}")),
     "reconcile": _version(RECONCILE_PROMPT_NUMBER, RECONCILE_SYSTEM),
+    "ocr": _version(OCR_PROMPT_NUMBER, OCR_INSTRUCTIONS),
 }
-"""Recorded in ``run.prompt_versions``."""
+"""Recorded in ``run.prompt_versions`` (``ocr`` only in runs with an OCR directory)."""
