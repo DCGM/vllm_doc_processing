@@ -2,14 +2,15 @@
 
 Experimental **API-only vision-language model processing of digitized books**. A folder of ordered book scans is analyzed image by image using a vision model with context derived from earlier extracted pages. A final text LLM pass reconciles bibliographic metadata, page numbering, page types, sides, table of contents and chapter structure into a custom JSON.
 
-**Status: first runnable version (MVP issues #1–#8).** `vllm-doc process` annotates a whole book end to end: scan inventory, sequential observation of every scan with bounded context from earlier scans, document-wide reconciliation and the final JSON, with a checkpoint after every scan and `--resume`. Accuracy and cost have not been benchmarked yet (#10); optional experiments are issues #9–#11.
+**Status: first runnable version (MVP issues #1–#8).** `vllm-doc process` annotates a whole book end to end: scan inventory, sequential observation of every scan with bounded context from earlier scans, document-wide reconciliation and the final JSON, with a checkpoint after every scan and `--resume`. `vllm-doc evaluate` scores outputs against human-verified gold annotations and reports agreement with MetaKat/Kramerius separately (#10, [docs/EVALUATION.md](docs/EVALUATION.md)); accuracy has not been measured yet because the gold set (#26) is still being prepared. Optional experiments are issues #9 and #11.
 
 ## Scope
 - Input: directory of book images (one image per scan: single page or facing-page spread) plus an order file listing the image names without extensions, one per line, in physical scan order. Filenames (usually UUIDs) carry no order.
 - Provider: direct OpenAI or OpenRouter using OpenAI-compatible APIs; vision model configurable.
 - Output: versioned custom JSON with bibliography, per-scan annotations, printed numbering (separate from scan index) and page labels in Czech NDK notation (`[1a]`, `[4],5`, comparable with MetaKat/Kramerius), page sides/types, chapter hierarchy, evidence, reconciled values and request metrics.
 - Processing: sequential per scan with bounded summary of previously extracted data, followed by a book-level consistency pass.
-- Optional *later*: small-model-to-large-model escalation, selective image revisits, MetaKat benchmark.
+- Evaluation: offline scoring against human-verified gold annotations; MetaKat and Kramerius outputs are imported as comparators, not ground truth.
+- Optional *later*: small-model-to-large-model escalation, selective image revisits.
 
 Not in the first version: periodicals/newspapers, full OCR/ALTO processing, page-region boxes, a web UI, a server, a database, or production deployment.
 
@@ -68,6 +69,15 @@ vllm-doc observe --input /data/scanned-book --provider openrouter --model '<visi
 ```
 Annotates the selected scans **independently** (no context from other scans) with the observation prompt and prints one JSON line per scan, in scan order: `scan_id`, `scan_index`, `filename`, `model`, `prompt_version`, `observation` (a `ScanObservation`, or `null`), `error` and `calls` (every attempt as a `CallRecord`). Per-call log lines and a usage/cost summary go to stderr. It accepts `--input`, `--order-file`, `--config`, `--provider`, `--base-url`, `--model`; `max_pages` from a config file is ignored. With `--scans` only the selected images are matched and decoded, so other listed scans may be missing or corrupt; scan positions still come from the whole order file. Exit code `1` if any scan failed after retries. Paid: every selected scan is one or more requests. The prompt is described in [docs/PROMPTS.md](docs/PROMPTS.md).
 
+### `vllm-doc evaluate` and `vllm-doc gold-template` (offline)
+```bash
+vllm-doc gold-template --input /data/scanned-book --book-id ID --output gold/ID.json   # manifest + empty labels
+vllm-doc evaluate --gold gold/*.json --prediction results/*/book.json --name my-config \
+  --comparator metakat/*.json data/*.kramerius.json --json report.json --markdown report.md
+vllm-doc evaluate --gold examples/gold.example.json --prediction examples/annotated_book.example.json
+```
+`gold-template` hashes every listed scan and writes a gold file (the corpus manifest, with optional `--txt-dir`/`--alto-dir` OCR sidecars `<scan_id>.txt|.xml`) in which every label is `not_reviewed`; it never overwrites an existing file. `evaluate` scores the observed and resolved layers of annotated-book outputs (`--prediction`, one configuration, at most one output per book) and MetakatIO / `*.kramerius.json` imports (`--comparator`) against the gold files, only on reviewed fields, and reports the agreement of this tool with each comparator separately. Predictions are matched to gold books by shared scan IDs; scans whose image SHA-256 differs from the gold are not scored. Without `--gold`, only agreement is reported. Gold format, vocabulary mapping (NDK vs MetaKat page types, MetaKat `single_page`), metrics and report contents are described in [docs/EVALUATION.md](docs/EVALUATION.md). Exit codes: `0` report written, `2` invalid inputs, `1` report not writable.
+
 ### Configuration
 Precedence: **built-in defaults < `--config` JSON file < command-line flags**. The config file is a flat JSON object whose keys match the settings below; unknown keys are rejected so typos fail loudly. See [examples/config.example.json](examples/config.example.json).
 
@@ -120,6 +130,7 @@ The output JSON format is defined by Pydantic models in `src/vllm_doc_processing
 ## Design and contributions
 - [Implementation plan and backlog](docs/IMPLEMENTATION_PLAN.md)
 - [JSON output schema and MetaKat mapping](docs/OUTPUT_SCHEMA.md)
+- [Evaluation: gold format, imports, metrics](docs/EVALUATION.md)
 - [Prompts](docs/PROMPTS.md)
 - [Agent development instructions](AGENTS.md)
 - [MetaKat](https://github.com/DCGM/MetaKat) — basis for comparison and bibliographic field vocabulary

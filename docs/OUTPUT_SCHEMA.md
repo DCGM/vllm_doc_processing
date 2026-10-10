@@ -92,7 +92,7 @@ Reference: [base_objects.py](https://github.com/DCGM/MetaKat/blob/main/metakat/s
 | MetaKat | This schema |
 |---|---|
 | `PageType` (38 values, PascalCase) | `PageType`: the 37 NDK page types written as in NDK (lowerCamelCase), see below. Unknown is `null`, not `normalPage`. |
-| `PageSideType` `left\|right\|single_page` | `ScanSide` `left\|right\|both\|null`. MetaKat `single_page` has no direct equivalent (a single non-facing leaf is `left`/`right` or `null`); `both` (spread) has no MetaKat value. Needs explicit handling in evaluation (#10). |
+| `PageSideType` `left\|right\|single_page` | `ScanSide` `left\|right\|both\|null`. MetaKat `single_page` has no direct equivalent (a single non-facing leaf is `left`/`right` or `null`); `both` (spread) has no MetaKat value. The evaluator treats `single_page` as incomparable ([EVALUATION.md](EVALUATION.md)). |
 | `MetakatPage.pageIndex` / `batch_index` | `scan_index` |
 | `MetakatPage.pageNumber` | `resolved.scans[].page_number` (NDK label of the scan, e.g. `[1a]`, `5,6`); per page in `page_labels[]`; observed numbers in `printed_numbers[]`. |
 | `MetakatTitle` + `MetakatVolume`: `title`, `subTitle`, `partName`, `partNumber`, `edition`, `dateIssued`, `placeTerm`, `publisher`, `manufacturePublisher`, `manufacturePlaceTerm`, `seriesName`, `seriesNumber`, `author`, `editor`, `translator`, `illustrator`, `photographer` | `Bibliography` fields in snake_case (`subtitle`, `publication_date`, `publication_place`, `manufacture_place`, …). MetaKat `(value, confidence, detection_id)` tuples become `Claim` with `source_scan_ids`. `placeTerm` is a list here (several places may be printed). Periodical/issue fields and `redaktor` are out of scope. |
@@ -103,7 +103,7 @@ Reference: [base_objects.py](https://github.com/DCGM/MetaKat/blob/main/metakat/s
 ## Page types
 `PageType` is the NDK page-type vocabulary of [Pravidla pro popis monografií 2.4](https://standardy.ndk.cz/ndk/standardy-digitalizace/ppp_mono_2.4_final.pdf/at_download/file), table 1.2.2 (the values used in NDK METS `TYPE` and MODS `genre type`): `frontJacket`, `cover`, `frontCover`, `backCover`, `frontEndSheet`, `backEndSheet`, `frontEndPaper`, `backEndPaper`, `titlePage`, `preface`, `introduction`, `normalPage`, `blank`, `illustration`, `map`, `table`, `advertisement`, `impressum`, `colophon`, `frontispiece`, `imprimatur`, `dedication`, `errata`, `sheetMusic`, `appendix`, `bibliography`, `afterword`, `conclusion`, `tableOfContents`, `index`, `listOfIllustrations`, `listOfMaps`, `listOfTables`, `edge`, `spine`, `jacket`, `flyleaf`. Definitions (our English summary of §1.2.1) are in `prompts.PAGE_TYPE_DESCRIPTIONS`.
 
-Mapping to MetaKat's `PageType` for evaluation (#10). Kramerius data mixes both spellings, so compare case-insensitively:
+Mapping to MetaKat's `PageType` for evaluation (#10, implemented in `predictions.page_type`; types without an NDK equivalent are incomparable, never equal). Kramerius data mixes both spellings, so compare case-insensitively:
 
 | MetaKat | NDK (this schema) |
 |---|---|

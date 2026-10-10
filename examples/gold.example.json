@@ -1,0 +1,198 @@
+{
+  "gold_version": "1",
+  "book_id": "example-book",
+  "dataset_version": "example-1",
+  "source": "synthetic example matching examples/annotated_book.example.json",
+  "scan_count": 5,
+  "reviewers": [
+    "annotator-a"
+  ],
+  "scans": [
+    {
+      "scan_id": "5b1f0c2e-7d4a-4e8b-9c3f-000000000001",
+      "scan_index": 0,
+      "filename": "5b1f0c2e-7d4a-4e8b-9c3f-000000000001.jpg",
+      "image_sha256": "0000000000000000000000000000000000000000000000000000000000000001",
+      "page_type": {
+        "status": "verified",
+        "value": "frontCover"
+      },
+      "side": {
+        "status": "not_applicable",
+        "notes": "cover"
+      },
+      "leaf": {
+        "status": "verified",
+        "value": "binding"
+      },
+      "printed_numbers": {
+        "status": "absent"
+      },
+      "page_number": {
+        "status": "verified",
+        "value": "[Ia]"
+      }
+    },
+    {
+      "scan_id": "5b1f0c2e-7d4a-4e8b-9c3f-000000000002",
+      "scan_index": 1,
+      "filename": "5b1f0c2e-7d4a-4e8b-9c3f-000000000002.jpg",
+      "image_sha256": "0000000000000000000000000000000000000000000000000000000000000002",
+      "page_type": {
+        "status": "verified",
+        "value": "titlePage"
+      },
+      "side": {
+        "status": "verified",
+        "value": "right"
+      },
+      "leaf": {
+        "status": "verified",
+        "value": "book_block"
+      },
+      "printed_numbers": {
+        "status": "absent"
+      },
+      "page_number": {
+        "status": "verified",
+        "value": "[I]",
+        "notes": "first counted page"
+      }
+    },
+    {
+      "scan_id": "5b1f0c2e-7d4a-4e8b-9c3f-000000000003",
+      "scan_index": 2,
+      "filename": "5b1f0c2e-7d4a-4e8b-9c3f-000000000003.jpg",
+      "image_sha256": "0000000000000000000000000000000000000000000000000000000000000003",
+      "page_type": {
+        "status": "ambiguous",
+        "alternatives": [
+          "colophon",
+          "impressum"
+        ],
+        "notes": "printer's note only"
+      },
+      "side": {
+        "status": "verified",
+        "value": "left"
+      },
+      "printed_numbers": {
+        "status": "absent"
+      }
+    },
+    {
+      "scan_id": "5b1f0c2e-7d4a-4e8b-9c3f-000000000004",
+      "scan_index": 3,
+      "filename": "5b1f0c2e-7d4a-4e8b-9c3f-000000000004.jpg",
+      "image_sha256": "0000000000000000000000000000000000000000000000000000000000000004",
+      "txt": {
+        "filename": "5b1f0c2e-7d4a-4e8b-9c3f-000000000004.txt",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "page_type": {
+        "status": "verified",
+        "value": "tableOfContents"
+      },
+      "side": {
+        "status": "verified",
+        "value": "both"
+      },
+      "leaf": {
+        "status": "verified",
+        "value": "book_block"
+      },
+      "printed_numbers": {
+        "status": "verified",
+        "value": [
+          "V",
+          "VI"
+        ],
+        "notes": "printed in small capitals"
+      },
+      "page_number": {
+        "status": "verified",
+        "value": "V,VI"
+      }
+    },
+    {
+      "scan_id": "5b1f0c2e-7d4a-4e8b-9c3f-000000000005",
+      "scan_index": 4,
+      "filename": "5b1f0c2e-7d4a-4e8b-9c3f-000000000005.jpg",
+      "image_sha256": "0000000000000000000000000000000000000000000000000000000000000005",
+      "page_type": {
+        "status": "verified",
+        "value": "normalPage"
+      },
+      "side": {
+        "status": "verified",
+        "value": "both"
+      },
+      "leaf": {
+        "status": "verified",
+        "value": "book_block"
+      },
+      "printed_numbers": {
+        "status": "verified",
+        "value": [
+          "1",
+          "2"
+        ]
+      },
+      "page_number": {
+        "status": "verified",
+        "value": "1,2"
+      }
+    }
+  ],
+  "bibliography": {
+    "title": {
+      "status": "verified",
+      "value": [
+        "Cesty po Šumavě"
+      ]
+    },
+    "subtitle": {
+      "status": "absent"
+    },
+    "author": {
+      "status": "verified",
+      "value": [
+        "Jan Žlutický"
+      ]
+    },
+    "publication_date": {
+      "status": "verified",
+      "value": [
+        "1925"
+      ]
+    }
+  },
+  "structure": {
+    "status": "verified",
+    "value": [
+      {
+        "title": "Předmluva",
+        "level": 1,
+        "start_scan_id": "5b1f0c2e-7d4a-4e8b-9c3f-000000000004",
+        "printed_page_reference": "V"
+      },
+      {
+        "title": "Na cestě",
+        "level": 1,
+        "start_scan_id": "5b1f0c2e-7d4a-4e8b-9c3f-000000000005",
+        "printed_page_reference": "1"
+      },
+      {
+        "title": "U Černého jezera",
+        "level": 2,
+        "printed_page_reference": "12"
+      },
+      {
+        "title": "Návrat domů",
+        "level": 1,
+        "printed_page_reference": "57"
+      }
+    ],
+    "reviewer": "annotator-a"
+  }
+}

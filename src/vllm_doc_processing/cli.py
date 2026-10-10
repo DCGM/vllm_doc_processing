@@ -12,11 +12,14 @@ from typing import Any
 
 from .config import API_KEY_ENV, Config, ConfigError, api_key, build_config, read_config_file, require_api_key
 from .checkpoint import load_checkpoint, run_identity, write_atomic
+from .evaluation import evaluate, to_markdown
+from .gold import gold_template, load_gold
 from .images import Inventory, build_inventory, read_order_file
 from .llm import LLMClient, LLMError
 from .models import CallRecord, UsageTotals, dump_json
 from .observe import observe_scan
 from .pipeline import process_book
+from .predictions import load_prediction
 from .prompts import PROMPT_VERSIONS
 from .reconcile import ReconcileError
 
@@ -77,6 +80,38 @@ def build_parser() -> argparse.ArgumentParser:
     selection = o.add_mutually_exclusive_group(required=True)
     selection.add_argument("--scans", nargs="+", metavar="ID", help="scan IDs (names from the order file)")
     selection.add_argument("--max-pages", type=int, metavar="N", help="the first N scans of the order file")
+
+    e = sub.add_parser(
+        "evaluate",
+        help="score predictions against gold annotations and report agreement with MetaKat/Kramerius (offline)",
+        description="Score annotated-book outputs (observed and resolved layer) and comparator imports against "
+        "human-verified gold files; report agreement between this tool and comparators separately. "
+        "Predictions are matched to gold books by shared scan IDs. No API calls.",
+    )
+    e.add_argument("--gold", nargs="+", default=[], type=Path, metavar="PATH", help="gold files (one book each)")
+    e.add_argument(
+        "--prediction", nargs="+", default=[], type=Path, metavar="PATH",
+        help="annotated book JSON outputs of one configuration (at most one per book)",
+    )
+    e.add_argument("--name", default="vllm-doc", help="system name of --prediction files (default: vllm-doc)")
+    e.add_argument(
+        "--comparator", nargs="+", default=[], type=Path, metavar="PATH",
+        help="MetakatIO JSON or *.kramerius.json files (predictions, not ground truth)",
+    )
+    e.add_argument("--json", type=Path, metavar="PATH", help="write the full JSON report")
+    e.add_argument("--markdown", type=Path, metavar="PATH", help="write the Markdown report (default: stdout if no --json)")
+
+    g = sub.add_parser(
+        "gold-template",
+        help="write a gold annotation file for one book with every label 'not_reviewed'",
+        description="Hash every listed scan and write a gold file (manifest + empty labels) to fill in by hand.",
+    )
+    _add_input_args(g)
+    g.add_argument("--output", required=True, type=Path, metavar="PATH", help="gold file to create (never overwritten)")
+    g.add_argument("--book-id", help="book ID (default: name of BOOK_DIR)")
+    g.add_argument("--source", help="where the scans come from, e.g. a Kramerius document URL")
+    g.add_argument("--txt-dir", type=Path, metavar="DIR", help="record <scan_id>.txt OCR sidecars found here")
+    g.add_argument("--alto-dir", type=Path, metavar="DIR", help="record <scan_id>.xml ALTO sidecars found here")
     return parser
 
 
@@ -275,10 +310,58 @@ def run_observe(args: argparse.Namespace) -> int:
     return EXIT_RUNTIME if failed else 0
 
 
+def run_evaluate(args: argparse.Namespace) -> int:
+    if not (args.prediction or args.comparator):
+        raise ConfigError("give --prediction and/or --comparator files")
+    if not (args.gold or (args.prediction and args.comparator)):
+        raise ConfigError("give --gold files, or both --prediction and --comparator files for agreement only")
+    try:
+        gold = [(str(p), load_gold(p)) for p in args.gold]
+        systems = [x for p in args.prediction for x in load_prediction(p, args.name)]
+        comparators = [x for p in args.comparator for x in load_prediction(p)]
+        if wrong := [x.path for x in systems if x.role != "system"] + [x.path for x in comparators if x.role != "comparator"]:
+            raise ConfigError(f"--prediction takes annotated books, --comparator MetaKat/Kramerius files: {sorted(set(wrong))}")
+        report = evaluate(gold, systems, comparators)
+    except (OSError, ValueError) as exc:  # includes pydantic ValidationError and PredictionError
+        raise ConfigError(str(exc)) from exc
+    markdown = to_markdown(report)
+    try:
+        if args.json:
+            args.json.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        if args.markdown:
+            args.markdown.write_text(markdown, encoding="utf-8")
+    except OSError as exc:
+        print(f"vllm-doc: error: cannot write report: {exc}", file=sys.stderr)
+        return EXIT_RUNTIME
+    if not (args.json or args.markdown):
+        print(markdown, end="")
+    return 0
+
+
+def run_gold_template(args: argparse.Namespace) -> int:
+    order_file = _order_file(args)
+    if args.output.exists():
+        raise ConfigError(f"{args.output} exists; gold files are never overwritten")
+    for d in (args.txt_dir, args.alto_dir):
+        if d is not None and not d.is_dir():
+            raise ConfigError(f"directory not found: {d}")
+    inventory = _inventory(args.input, order_file, None)
+    book_id = args.book_id or args.input.resolve().name
+    gold = gold_template(inventory, book_id, args.source, args.txt_dir, args.alto_dir)
+    with args.output.open("x", encoding="utf-8") as f:
+        f.write(gold.model_dump_json(indent=2) + "\n")
+    sidecars = sum(bool(s.txt) for s in gold.scans), sum(bool(s.alto) for s in gold.scans)
+    print(f"vllm-doc: wrote {args.output}: {len(gold.scans)} scans, TXT {sidecars[0]}, ALTO {sidecars[1]}", file=sys.stderr)
+    return 0
+
+
+COMMANDS = {"process": run_process, "observe": run_observe, "evaluate": run_evaluate, "gold-template": run_gold_template}
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        return run_observe(args) if args.command == "observe" else run_process(args)
+        return COMMANDS[args.command](args)
     except ConfigError as exc:
         print(f"vllm-doc: error: {exc}", file=sys.stderr)
         return EXIT_CONFIG
