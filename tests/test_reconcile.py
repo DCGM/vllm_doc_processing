@@ -69,7 +69,8 @@ ANSWER = {
         {"field": "title", "value": "Cesty", "source_scans": [3], "notes": None},
         {"field": "author", "value": "Karel Klostermann", "source_scans": [3], "notes": None},
         {"field": "publication_place", "value": "Praha", "source_scans": [3], "notes": "nominative form"},
-        {"field": "publisher", "value": "Invented Press", "source_scans": [9], "notes": None},
+        # Cites a scan with bibliographic candidates, but no observed publisher supports it.
+        {"field": "publisher", "value": "Invented Press", "source_scans": [3], "notes": None},
     ],
     "chapters": [
         {"title": "Úvod", "level": 1, "toc_scans": [5], "printed_page_reference": "1", "heading_scan": 8,
@@ -81,6 +82,11 @@ ANSWER = {
         {"title": "Kapitola III. Domů", "level": 1, "toc_scans": [5], "printed_page_reference": "40",
          "heading_scan": None, "notes": None},
         {"title": "Doslov", "level": 1, "toc_scans": [], "printed_page_reference": None, "heading_scan": 99,
+         "notes": None},
+        # Invented title on a real TOC scan and reference; a title adding words to its TOC entry.
+        {"title": "Závěr", "level": 1, "toc_scans": [5], "printed_page_reference": "40", "heading_scan": None,
+         "notes": None},
+        {"title": "Úvod do dějin", "level": 1, "toc_scans": [5], "printed_page_reference": "1", "heading_scan": None,
          "notes": None},
     ],
     "issues": [{"code": "title_variants", "message": "Cover title in capitals.", "scans": [1, 3]}],
@@ -158,6 +164,8 @@ def test_reconcile_checks_llm_answer_and_flags_conflicts_without_editing_observa
     assert (ch3.start_scan_id, ch3.printed_page_reference) == (None, "40")
     assert warnings(out, "unresolved_toc_reference")[0].field_path == "resolved.structure[3]"
     assert warnings(out, "ungrounded_chapter") and warnings(out, "toc_heading_mismatch") == []
+    assert warnings(out, "unmatched_toc_entry")[0].field_path == "resolved.structure[4]"
+    assert "Úvod do dějin" in warnings(out, "ungrounded_title")[0].message
     (issue,) = [w for w in out.resolved.warnings if w.detected_by == "llm"]
     assert issue.scan_ids == ["s0", "s2"]
 
@@ -166,13 +174,14 @@ def test_toc_reference_resolved_through_computed_label_and_mismatch_flagged():
     pages = list(PAGES)
     pages[4] = page("III", "roman", "TableOfContents", toc=[("Úvod", "1"), ("Kapitola II. Na horách", "6"),
                                                              ("Část", "2")])
+    pages[15] = page(heading="II. Na horách")
     answer = {
         "scan_corrections": [],
         "bibliography": [],
         "chapters": [
             {"title": "Úvod", "level": 1, "toc_scans": [5], "printed_page_reference": "1", "heading_scan": 8,
              "notes": None},
-            # TOC says 6 (scan 15) but the LLM matched the heading on scan 16: kept, flagged.
+            # TOC says 6 (scan 15) but the LLM matched the (abbreviated) heading on scan 16: kept, flagged.
             {"title": "Kapitola II. Na horách", "level": 1, "toc_scans": [5], "printed_page_reference": "6",
              "heading_scan": 16, "notes": None},
             {"title": "Část", "level": 1, "toc_scans": [5], "printed_page_reference": "2", "heading_scan": None,
