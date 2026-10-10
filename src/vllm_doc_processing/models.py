@@ -20,7 +20,7 @@ from typing import Annotated, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
-SCHEMA_VERSION = "0.2"
+SCHEMA_VERSION = "0.3"
 
 Confidence = Annotated[float | None, Field(ge=0.0, le=1.0)]
 """Self-reported or heuristic score in [0, 1]; not a calibrated probability."""
@@ -191,6 +191,28 @@ class ScanObservation(StrictModel):
         return self
 
 
+class OcrInput(StrictModel):
+    """The OCR sidecar supplied with one scan: metadata only, the OCR text itself is never stored."""
+
+    status: Literal["ok", "missing"] = Field(description="'missing': no sidecar, the scan was sent as image only.")
+    filename: str | None = Field(default=None, description="Sidecar file name in the OCR directory.")
+    format: Literal["txt", "alto"] | None = None
+    sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$", description="Hash of the sidecar bytes.")
+    size_bytes: int | None = Field(default=None, ge=0)
+    chars: int | None = Field(default=None, ge=0, description="Length of the normalized OCR text.")
+    sent_chars: int | None = Field(default=None, ge=0, description="Length of the OCR text sent (<= ocr_max_chars).")
+    truncated: bool = Field(default=False, description="The middle of the text was omitted to fit ocr_max_chars.")
+
+    @model_validator(mode="after")
+    def _check_status(self) -> OcrInput:
+        details = (self.filename, self.format, self.sha256, self.size_bytes, self.chars, self.sent_chars)
+        if self.status == "ok" and None in details:
+            raise ValueError("an 'ok' OCR input needs filename, format, sha256, size_bytes, chars and sent_chars")
+        if self.status == "missing" and (any(d is not None for d in details) or self.truncated):
+            raise ValueError("a 'missing' OCR input has no file details")
+        return self
+
+
 class ScanRecord(StrictModel):
     scan_id: str = Field(min_length=1, description="Name from the order file (file name without extension).")
     scan_index: int = Field(ge=0, description="Zero-based position in the order file; not a page number.")
@@ -198,6 +220,7 @@ class ScanRecord(StrictModel):
     image_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     width: int | None = Field(default=None, gt=0)
     height: int | None = Field(default=None, gt=0)
+    ocr: OcrInput | None = Field(default=None, description="None = the run used no OCR directory.")
     observation: ScanObservation | None = Field(default=None, description="None = not (successfully) observed.")
     observation_call_id: str | None = None
 
@@ -427,11 +450,12 @@ class RunInfo(StrictModel):
 class SourceInfo(StrictModel):
     input_directory: str | None = None
     order_file: str | None = Field(default=None, description="File listing scan names in physical order.")
+    ocr_directory: str | None = Field(default=None, description="Directory of OCR sidecars; None = image-only run.")
     scan_count: int = Field(ge=0)
 
 
 class AnnotatedBook(StrictModel):
-    schema_version: Literal["0.2"] = SCHEMA_VERSION
+    schema_version: Literal["0.3"] = SCHEMA_VERSION
     book_id: str = Field(min_length=1)
     source: SourceInfo
     scans: list[ScanRecord]
@@ -446,6 +470,8 @@ class AnnotatedBook(StrictModel):
             raise ValueError("scans must be sorted with contiguous scan_index starting at 0")
         _require_unique([s.scan_id for s in self.scans], "scan_id")
         _require_unique([s.filename for s in self.scans], "filename")
+        if any((s.ocr is not None) != (self.source.ocr_directory is not None) for s in self.scans):
+            raise ValueError("every scan has OCR input metadata exactly when source.ocr_directory is set")
         call_ids = [c.call_id for c in self.run.calls]
         _require_unique(call_ids, "call_id")
 

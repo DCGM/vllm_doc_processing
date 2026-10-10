@@ -147,6 +147,10 @@ def library_label(label: str | None) -> str | None:
 # --- Loading ------------------------------------------------------------------
 
 
+READABLE_SCHEMA_VERSIONS = ("0.2", SCHEMA_VERSION)
+"""0.3 only added optional OCR fields, so 0.2 files (image-only runs) are read as they are."""
+
+
 def load_prediction(path: Path, system: str | None = None) -> list[Prediction]:
     """Detect the format and import. An annotated book yields its observed and (if present) resolved layer."""
     data_bytes = path.read_bytes()
@@ -167,12 +171,13 @@ def load_prediction(path: Path, system: str | None = None) -> list[Prediction]:
 
 
 def from_annotated_book(data: dict, path: str, sha: str, system: str) -> list[Prediction]:
-    if data.get("schema_version") != SCHEMA_VERSION:
+    version = data.get("schema_version")
+    if version not in READABLE_SCHEMA_VERSIONS:
         raise PredictionError(
-            f"{path}: schema_version {data.get('schema_version')!r} is not supported (expected {SCHEMA_VERSION!r})"
+            f"{path}: schema_version {version!r} is not supported (expected one of {READABLE_SCHEMA_VERSIONS})"
         )
     try:
-        book = AnnotatedBook.model_validate(data)
+        book = AnnotatedBook.model_validate(data | {"schema_version": SCHEMA_VERSION})
     except ValidationError as exc:
         raise PredictionError(f"{path}: invalid annotated book: {exc}") from exc
 
@@ -189,7 +194,7 @@ def from_annotated_book(data: dict, path: str, sha: str, system: str) -> list[Pr
                 "printed_numbers_normalized": raw or None,
             }
         observed[s.scan_id] = PredictedScan(s.scan_id, s.scan_index, s.image_sha256, values)
-    provenance = _provenance(book)
+    provenance = _provenance(book) | {"schema_version": version}
     common = dict(system=system, role="system", path=path, sha256=sha, book_id=book.book_id, provenance=provenance)
     out = [Prediction(layer="observed", scans=observed, fields=OBSERVED_FIELDS, **common)]
     if (r := book.resolved) is not None:
@@ -222,7 +227,17 @@ def from_annotated_book(data: dict, path: str, sha: str, system: str) -> list[Pr
 def _provenance(book: AnnotatedBook) -> dict[str, Any]:
     run = book.run
     params = run.parameters
-    ocr = {k: v for k, v in params.items() if k.startswith("ocr")}
+    ocr: dict[str, Any] | str = "image-only"
+    if book.source.ocr_directory is not None:
+        infos = [s.ocr for s in book.scans if s.ocr is not None]
+        ocr = {
+            "format": params.get("ocr_format"),
+            "max_chars": params.get("ocr_max_chars"),
+            "txt": sum(i.format == "txt" for i in infos),
+            "alto": sum(i.format == "alto" for i in infos),
+            "missing": sum(i.status == "missing" for i in infos),
+            "truncated": sum(i.truncated for i in infos),
+        }
     duration = (run.finished_at - run.started_at).total_seconds() if run.started_at and run.finished_at else None
     requests = run.totals.requests
     return {

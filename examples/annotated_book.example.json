@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.2",
+  "schema_version": "0.3",
   "book_id": "example-book",
   "source": {"input_directory": null, "order_file": "order.txt", "scan_count": 5},
   "scans": [

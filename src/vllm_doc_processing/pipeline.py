@@ -11,12 +11,12 @@ from pathlib import Path
 from pydantic import JsonValue
 
 from .checkpoint import Checkpoint, save_checkpoint
-from .context import CONTEXT_VERSION, build_context
+from .context import build_context
 from .images import Inventory
 from .llm import LLMClient, LLMError
-from .models import AnnotatedBook, RunInfo, SourceInfo
-from .observe import observe_scan
-from .prompts import PROMPT_VERSIONS
+from .models import AnnotatedBook, OcrInput, RunInfo, SourceInfo
+from .observe import observe_prompt_versions, observe_scan
+from .ocr import ocr_summary
 from .reconcile import reconcile_book
 
 log = logging.getLogger(__name__)
@@ -31,6 +31,7 @@ def new_book(client: LLMClient, inventory: Inventory, order_file: Path | None = 
         source=SourceInfo(
             input_directory=str(inventory.book_dir),
             order_file=str(order_file) if order_file else None,
+            ocr_directory=str(inventory.ocr_dir) if inventory.ocr_dir else None,
             scan_count=len(scans),
         ),
         scans=scans,
@@ -39,7 +40,7 @@ def new_book(client: LLMClient, inventory: Inventory, order_file: Path | None = 
             provider=config.provider,
             base_url=config.effective_base_url,
             vision_model=config.model,
-            prompt_versions={"observe": PROMPT_VERSIONS["observe"], "context": CONTEXT_VERSION},
+            prompt_versions=observe_prompt_versions(inventory),
             parameters=config.model_dump(mode="json"),
         ),
     )
@@ -81,11 +82,12 @@ def observe_book(
         book.run.calls += calls
         book.run.refresh_totals()
         log.info(
-            "scan %d/%d id=%s context_chars=%d attempts=%d status=%s",
+            "scan %d/%d id=%s context_chars=%d ocr=%s attempts=%d status=%s",
             i + 1,
             len(scans),
             scan.scan_id,
             len(context or ""),
+            _ocr_state(scan.ocr),
             len(calls),
             status,
         )
@@ -95,12 +97,21 @@ def observe_book(
     return book
 
 
+def _ocr_state(ocr: OcrInput | None) -> str:
+    if ocr is None:
+        return "-"
+    if ocr.status == "missing":
+        return "missing"
+    return f"{ocr.format}:{ocr.sent_chars}" + ("(truncated)" if ocr.truncated else "")
+
+
 def resume_book(client: LLMClient, inventory: Inventory, order_file: Path, checkpoint: Checkpoint) -> AnnotatedBook:
     """The checkpoint's book extended to the selected scans (``max_pages`` may have grown)."""
     book = checkpoint.book.model_copy(deep=True)
     book.scans += [s.model_copy(deep=True) for s in inventory.scans[len(book.scans) :]]
     book.source.scan_count = len(book.scans)
     book.source.input_directory, book.source.order_file = str(inventory.book_dir), str(order_file)
+    book.source.ocr_directory = str(inventory.ocr_dir) if inventory.ocr_dir else None
     book.run.parameters = client.config.model_dump(mode="json")
     log.info(
         "resuming: %d of %d scan(s) already observed, %d earlier request(s)",
@@ -138,6 +149,11 @@ def process_book(
     unobserved = [s.scan_id for s in book.scans if s.observation is None]
     if unobserved:
         warnings.append(f"{len(unobserved)} scan(s) not observed (failed requests): {', '.join(unobserved)}")
+    ocr = ocr_summary(inventory)
+    if ocr.get("missing"):
+        warnings.append(f"{ocr['missing']} scan(s) had no OCR sidecar and were sent as image only")
+    if ocr.get("truncated"):
+        warnings.append(f"OCR text of {ocr['truncated']} scan(s) was shortened to ocr_max_chars")
     if skip_postprocess:
         warnings.append("reconciliation skipped (--skip-postprocess); resolved is null")
     else:

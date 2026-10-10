@@ -13,6 +13,8 @@
   "use_context": true,
   "context_recent_scans": 5,
   "context_max_chars": 2000,
+  "ocr_format": "auto",
+  "ocr_max_chars": 6000,
   "reconcile_max_chars": 100000,
   "reconcile_max_output_tokens": 16000,
   "request_params": {}

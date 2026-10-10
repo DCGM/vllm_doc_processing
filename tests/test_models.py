@@ -114,4 +114,4 @@ def test_unknowns_stay_null():
         {"book_id": "b", "source": {"scan_count": 1}, "scans": [{"scan_id": sid(1), "scan_index": 0, "filename": "a.jpg"}]}
     )
     assert book.scans[0].observation is None and book.resolved is None
-    assert book.schema_version == "0.2"
+    assert book.schema_version == "0.3"

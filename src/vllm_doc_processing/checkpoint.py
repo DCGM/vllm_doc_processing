@@ -3,8 +3,9 @@
 A checkpoint is written atomically after every scan. It holds only the observation stage
 (``book.resolved`` is always None); reconciliation is cheap (one request) and is run again on resume.
 Resuming is allowed only when everything that shapes an observation is unchanged: the order file,
-the images (hashes), the observation model and its settings, the prompt and context versions and
-the schema version. Settings that only affect reconciliation, retries or ``max_pages`` may change.
+the images and OCR sidecars (hashes), the observation model and its settings (including OCR), the
+prompt, context and OCR versions and the schema version. Settings that only affect reconciliation,
+retries or ``max_pages`` may change.
 """
 
 from __future__ import annotations
@@ -17,10 +18,9 @@ from typing import Literal
 from pydantic import JsonValue, ValidationError
 
 from .config import Config, ConfigError
-from .context import CONTEXT_VERSION
 from .images import Inventory
 from .models import SCHEMA_VERSION, AnnotatedBook, StrictModel
-from .prompts import PROMPT_VERSIONS
+from .observe import observe_prompt_versions
 
 OBSERVATION_SETTINGS = (
     "provider",
@@ -36,7 +36,7 @@ OBSERVATION_SETTINGS = (
 )
 """``Config`` keys that change what the vision model sees or answers; part of the checkpoint identity."""
 
-SCAN_KEYS = ("scan_id", "scan_index", "filename", "image_sha256", "width", "height")
+SCAN_KEYS = ("scan_id", "scan_index", "filename", "image_sha256", "width", "height", "ocr")
 
 
 class CheckpointError(ConfigError):
@@ -54,9 +54,12 @@ def run_identity(config: Config, inventory: Inventory, order_names: list[str]) -
     settings = {key: getattr(config, key) for key in OBSERVATION_SETTINGS}
     if not config.use_context:  # irrelevant without context
         del settings["context_recent_scans"], settings["context_max_chars"]
+    # OCR on/off and its settings; the sidecars themselves are compared per scan (``ScanRecord.ocr``).
+    ocr = {"format": config.ocr_format, "max_chars": config.ocr_max_chars} if inventory.ocr_dir else None
     return {
         "schema_version": SCHEMA_VERSION,
-        "prompt_versions": {"observe": PROMPT_VERSIONS["observe"], "context": CONTEXT_VERSION},
+        "prompt_versions": observe_prompt_versions(inventory),
+        "ocr": ocr,
         "base_url": config.effective_base_url,
         **settings,
         # The scan count and positions are part of every prompt, so the whole order file must match.
@@ -94,7 +97,7 @@ def load_checkpoint(path: Path, identity: dict[str, JsonValue], inventory: Inven
         if old.model_dump(include=set(SCAN_KEYS)) != new.model_dump(include=set(SCAN_KEYS)):
             raise CheckpointError(
                 f"scan {new.scan_index + 1} ({new.filename}) differs from the checkpoint {path} "
-                "(changed image or order); use --fresh to start over"
+                "(changed image, OCR sidecar or order); use --fresh to start over"
             )
     return checkpoint
 

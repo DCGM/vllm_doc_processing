@@ -18,6 +18,7 @@ from .images import Inventory, build_inventory, read_order_file
 from .llm import LLMClient, LLMError
 from .models import CallRecord, UsageTotals, dump_json
 from .observe import observe_scan
+from .ocr import attach_ocr, ocr_summary
 from .pipeline import process_book
 from .predictions import load_prediction
 from .prompts import PROMPT_VERSIONS
@@ -48,6 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_input_args(p)
     p.add_argument("--output", required=True, type=Path, metavar="PATH", help="annotated book JSON to write")
     _add_config_args(p)
+    _add_ocr_args(p)
     p.add_argument("--postprocess-model", help="text model ID for reconciliation (default: --model)")
     p.add_argument("--max-pages", type=int, metavar="N", help="process only the first N scans of the order file")
     p.add_argument(
@@ -77,6 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_input_args(o)
     _add_config_args(o)
+    _add_ocr_args(o)
     selection = o.add_mutually_exclusive_group(required=True)
     selection.add_argument("--scans", nargs="+", metavar="ID", help="scan IDs (names from the order file)")
     selection.add_argument("--max-pages", type=int, metavar="N", help="the first N scans of the order file")
@@ -138,10 +141,41 @@ def _add_config_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--model", help="vision model ID (required here or in --config)")
 
 
+def _add_ocr_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--ocr-dir",
+        type=Path,
+        metavar="DIR",
+        help="optional directory of existing OCR sidecars <scan_id>.txt (UTF-8) or <scan_id>.xml (ALTO); "
+        "each scan's text is sent with its image, scans without a sidecar are sent as image only",
+    )
+    p.add_argument("--ocr-format", choices=["auto", "txt", "alto"], help="sidecars to use (default: auto = either)")
+
+
 def _load_config(args: argparse.Namespace, **cli_values: Any) -> Config:
     file_values = read_config_file(args.config) if args.config else {}
-    cli_values = {"provider": args.provider, "base_url": args.base_url, "model": args.model, **cli_values}
+    cli_values = {
+        "provider": args.provider, "base_url": args.base_url, "model": args.model, "ocr_format": args.ocr_format,
+        **cli_values,
+    }
     return build_config(file_values, cli_values)
+
+
+def _with_ocr(args: argparse.Namespace, config: Config, inventory: Inventory) -> Inventory:
+    """Attach the OCR sidecars of ``--ocr-dir`` (if given) and report their coverage on stderr."""
+    if args.ocr_dir is None:
+        if args.ocr_format:
+            raise ConfigError("--ocr-format needs --ocr-dir")
+        return inventory
+    inventory = attach_ocr(inventory, args.ocr_dir, config.ocr_format, config.ocr_max_chars)
+    counts = ocr_summary(inventory)
+    print(
+        f"vllm-doc: OCR sidecars for {counts['txt'] + counts['alto']}/{len(inventory.scans)} scan(s) "
+        f"(TXT {counts['txt']}, ALTO {counts['alto']}); {counts['missing']} sent as image only, "
+        f"{counts['truncated']} shortened to ocr_max_chars={config.ocr_max_chars}",
+        file=sys.stderr,
+    )
+    return inventory
 
 
 def _order_file(args: argparse.Namespace) -> Path:
@@ -195,7 +229,7 @@ def run_process(args: argparse.Namespace) -> int:
     if not args.dry_run:
         require_api_key(config)
 
-    inventory = _inventory(args.input, order_file, config.max_pages)
+    inventory = _with_ocr(args, config, _inventory(args.input, order_file, config.max_pages))
     identity = run_identity(config, inventory, read_order_file(order_file))
     resume_from = load_checkpoint(checkpoint_path, identity, inventory) if args.resume else None
     if checkpoint_path.exists() and not (args.resume or args.fresh or args.dry_run):
@@ -218,6 +252,8 @@ def run_process(args: argparse.Namespace) -> int:
             "listed_scans": inventory.total_listed,
             "selected_scans": len(inventory.scans),
             "unlisted_images": inventory.unlisted,
+            "ocr_directory": str(inventory.ocr_dir) if inventory.ocr_dir else None,
+            "ocr_sidecars": ocr_summary(inventory) or None,
             "checkpoint_exists": checkpoint_path.exists(),
         }
         if resume_from:
@@ -279,6 +315,7 @@ def run_observe(args: argparse.Namespace) -> int:
         if args.max_pages < 1:
             raise ConfigError("--max-pages must be at least 1")
         inventory = _inventory(args.input, order_file, args.max_pages)
+    inventory = _with_ocr(args, config, inventory)
     scans = inventory.scans
     client = LLMClient(config)
     _setup_logging()
@@ -292,6 +329,7 @@ def run_observe(args: argparse.Namespace) -> int:
             "filename": scan.filename,
             "model": config.model,
             "prompt_version": PROMPT_VERSIONS["observe"],
+            "ocr": scan.ocr.model_dump(mode="json") if scan.ocr else None,
         }
         try:
             result = observe_scan(client, inventory, scan)

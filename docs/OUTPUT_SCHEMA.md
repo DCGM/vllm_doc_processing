@@ -1,4 +1,4 @@
-# Annotated-book JSON schema (`schema_version` 0.2)
+# Annotated-book JSON schema (`schema_version` 0.3)
 
 **Source of truth:** `src/vllm_doc_processing/models.py` (Pydantic). Full example: [`examples/annotated_book.example.json`](../examples/annotated_book.example.json). Machine-readable JSON Schema: `AnnotatedBook.model_json_schema()`.
 
@@ -13,8 +13,8 @@ One run processes **one book** from one directory of **ordered scans** and write
 
 ```text
 AnnotatedBook
-├─ schema_version: "0.2"   book_id   source {input_directory?, order_file?, scan_count}
-├─ scans[]: ScanRecord {scan_id, scan_index, filename, image_sha256?, width?, height?,
+├─ schema_version: "0.3"   book_id   source {input_directory?, order_file?, ocr_directory?, scan_count}
+├─ scans[]: ScanRecord {scan_id, scan_index, filename, image_sha256?, width?, height?, ocr: OcrInput?,
 │            observation: ScanObservation?, observation_call_id?}
 ├─ resolved: ResolvedBook? {bibliography, scans[]: ResolvedScan, structure[]: StructureNode,
 │            warnings[], changes[]}
@@ -26,6 +26,7 @@ AnnotatedBook
 - Scan order comes from an **order file** (one image name without extension per line, in physical order; recorded in `source.order_file`). Filenames are usually UUIDs and are not sorted.
 - `scan_index` is the zero-based line position in the order file. `scan_id` is the listed name (e.g. the page UUID), so it is stable even if scans are added; `filename` is the matching file including its extension. Neither is a printed page number.
 - `image_sha256` is the hash of the original file bytes; `width`/`height` are pixel dimensions of the upright original (EXIF orientation applied), not of the possibly downscaled upload. With `--max-pages N`, `scans` holds only the first N listed scans and `source.scan_count == N`.
+- `ocr` (#14) describes the OCR sidecar sent with the scan; it is `null` in every scan of a run without `--ocr-dir` (`source.ocr_directory: null`) and set in every scan of a run with one. `OcrInput`: `status: ok|missing` (`missing` = no sidecar, the scan was sent as image only, all other fields `null`), `filename` (in `source.ocr_directory`), `format: txt|alto`, `sha256` and `size_bytes` of the sidecar bytes, `chars` (length of the normalized text), `sent_chars` (length sent, ≤ `ocr_max_chars`), `truncated`. The OCR text itself is never stored. It is request input, not evidence: observations are not attributed to OCR.
 - Exactly one `observation` per scan. `null` means the scan was not (successfully) observed; failed attempts are in `run.calls`. `observation_call_id` names the call that produced it: when a scan is escalated (#9) the stronger model's output replaces the cheaper one, and the cheaper call stays only in `run.calls`.
 - `ScanObservation` is also the vision model's response contract (#5):
 
@@ -69,12 +70,13 @@ NDK practice brackets every number that is not printed (the rules allow omitting
 - `changes[]` — audit log `{field_path, old_value, new_value, reason, source_scan_ids}` wherever a resolved page type or side was corrected (`old_value`: the observed value), or a resolved bibliographic value or chapter title is not literally observed (`old_value`: the values observed for that field, or `null`). Computed page labels are not repeated here; they are marked by `origin: inferred`.
 
 ## Run provenance
-`CallRecord` is one request **attempt**: `call_id`, `stage: observe|reconcile|escalate|revisit`, `scan_id?`, `provider`, `model`, `attempt` (retries > 1), `status: ok|invalid_response|error`, `started_at`, `latency_s`, `prompt_tokens`, `completion_tokens`, `cost_usd` (as reported; `null` if not — OpenRouter reports cost, OpenAI does not), `response_id` (provider response/generation ID), `served_model` (model name in the response, e.g. a dated snapshot), `upstream_provider` (serving provider behind OpenRouter), `error` (redacted, truncated; never contains prompts, images or keys). `prompt_versions` holds `observe` (observation prompt), `context` (format of the earlier-scan context, `context.CONTEXT_VERSION`) and, after reconciliation, `reconcile` (reconciliation prompt and input format). `totals` must equal `UsageTotals.from_calls(calls)` (call `run.refresh_totals()` after adding calls); `cost_complete: false` means some calls lacked a reported cost. `parameters` must never contain secrets (on resume: the settings of the last session). A resumed run (#8) keeps the calls of all its sessions, including failed and repeated reconciliations, and the first session's `started_at`. `finished_at` is set only in a written output, never in a checkpoint. `run.warnings` lists scans left without an observation and a skipped reconciliation (`--skip-postprocess`).
+`CallRecord` is one request **attempt**: `call_id`, `stage: observe|reconcile|escalate|revisit`, `scan_id?`, `provider`, `model`, `attempt` (retries > 1), `status: ok|invalid_response|error`, `started_at`, `latency_s`, `prompt_tokens`, `completion_tokens`, `cost_usd` (as reported; `null` if not — OpenRouter reports cost, OpenAI does not), `response_id` (provider response/generation ID), `served_model` (model name in the response, e.g. a dated snapshot), `upstream_provider` (serving provider behind OpenRouter), `error` (redacted, truncated; never contains prompts, images or keys). `prompt_versions` holds `observe` (observation prompt), `context` (format of the earlier-scan context, `context.CONTEXT_VERSION`), `ocr` (OCR block of the observation request, only in runs with an OCR directory) and, after reconciliation, `reconcile` (reconciliation prompt and input format). `totals` must equal `UsageTotals.from_calls(calls)` (call `run.refresh_totals()` after adding calls); `cost_complete: false` means some calls lacked a reported cost. `parameters` must never contain secrets (on resume: the settings of the last session). A resumed run (#8) keeps the calls of all its sessions, including failed and repeated reconciliations, and the first session's `started_at`. `finished_at` is set only in a written output, never in a checkpoint. `run.warnings` lists scans left without an observation and a skipped reconciliation (`--skip-postprocess`).
 
-The checkpoint file (`--checkpoint`, #8) is `{"checkpoint_version": 1, "identity": {...}, "book": AnnotatedBook}` with `book.resolved` and `book.run.finished_at` always `null`; `identity` holds the settings, prompt versions, schema version and order-file hash that must match for `--resume` (`checkpoint.run_identity`). It is an internal format; only the output is versioned by `schema_version`.
+The checkpoint file (`--checkpoint`, #8) is `{"checkpoint_version": 1, "identity": {...}, "book": AnnotatedBook}` with `book.resolved` and `book.run.finished_at` always `null`; `identity` holds the settings (including `ocr`: `null` or the OCR format and `max_chars`), prompt versions, schema version and order-file hash that must match for `--resume` (`checkpoint.run_identity`); images and OCR sidecars are compared per scan (`scans[].image_sha256`, `scans[].ocr`). It is an internal format; only the output is versioned by `schema_version`.
 
 ## Validated invariants
-- `schema_version` is `"0.2"`; `source.scan_count == len(scans)`.
+- `schema_version` is `"0.3"`; `source.scan_count == len(scans)`.
+- `scans[].ocr` is set in every scan if `source.ocr_directory` is set, else `null` in every scan; an `ok` OCR input has all file details, a `missing` one none.
 - `scans` in order-file order, `scan_index` contiguous from 0; `scan_id`, `filename`, `call_id` unique.
 - Every scan ID referenced anywhere (`resolved.*`, `run.calls[].scan_id`) exists.
 - If `resolved` is present, `resolved.scans` lists every input scan exactly once, in scan order.
@@ -115,5 +117,7 @@ Mapping to MetaKat's `PageType` for evaluation (#10, implemented in `predictions
 
 ## Versioning
 Breaking changes bump `schema_version` and are listed here with a migration note.
+
+- **0.3** (#14): added `source.ocr_directory`, `ScanRecord.ocr` (`OcrInput`) and `run.prompt_versions.ocr`, all absent/`null` in image-only runs. Migration of 0.2 files: set `schema_version` to `"0.3"`; nothing else changes. `vllm-doc evaluate` reads 0.2 outputs directly.
 
 - **0.2** (#21): `PageType` values switched from MetaKat's vocabulary to NDK's (renamed to lowerCamelCase, `FlyLeaf` → `flyleaf`; `Abstract`, `Obituary`, `CalibrationTable`, `CustomInclude`, `FragmentsOfBookbinding` removed; `colophon`, `introduction`, `afterword`, `conclusion` added). Added `ScanObservation.page_type_reason`, `side_reason`, `leaf`, `leaf_reason`, `SubpageObservation.leaf`, `ResolvedScan.leaf`, `ResolvedSubpage.leaf` and `PrintedNumber.position`. Migration of 0.1 files: rename page types per the table above (removed types → `null`) and set `schema_version` to `"0.2"`; no 0.1 results were published.
