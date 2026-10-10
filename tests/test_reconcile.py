@@ -61,9 +61,11 @@ EXPECTED = ["[Ia]", "[Ib]", "[I]", "[II]", "III", "[IV]", "V", "1", "[2]", "3", 
 
 ANSWER = {
     "scan_corrections": [
-        {"scan": 2, "page_type": "frontEndSheet", "side": "keep", "reason": "Inside of the front cover."},
-        {"scan": 3, "page_type": None, "side": "right", "reason": "First page of the book block is a right page."},
-        {"scan": 99, "page_type": "blank", "side": "keep", "reason": "Out of range."},
+        {"scan": 2, "page_type": "frontEndSheet", "side": "keep", "leaf": "keep",
+         "reason": "Inside of the front cover."},
+        {"scan": 3, "page_type": None, "side": "right", "leaf": "keep",
+         "reason": "First page of the book block is a right page."},
+        {"scan": 99, "page_type": "blank", "side": "keep", "leaf": "keep", "reason": "Out of range."},
     ],
     "bibliography": [
         {"field": "title", "value": "Cesty po Šumavě", "source_scans": [1, 3], "notes": None},
@@ -199,7 +201,7 @@ def test_toc_reference_resolved_through_computed_label_and_mismatch_flagged():
 
 def ndk_labels(pages):
     book = make_book(pages)
-    pagination = reconcile._paginate(book.scans, [reconcile._observed_scan(s) for s in book.scans])
+    pagination = reconcile._paginate(book.scans, reconcile._observed_scans(book.scans))
     return [pagination.page_number(s.scan_index) for s in book.scans]
 
 
@@ -226,6 +228,40 @@ def test_observed_plate_leaf_is_lettered_even_where_parity_would_count_it():
     pages[3] = page(side="left")  # parity alone (no leaf evidence) would count the plate recto
     pages[1], pages[2] = page(page_type="illustration", side="right"), page(page_type="blank", side="left")
     assert ndk_labels(pages) == ["16", "[17]", "[17a]", "[17b]", "18"]
+
+
+def test_leaf_follows_page_type_corrections_and_spread_pages():
+    def spread(left, right, subpages, leaf=None):
+        numbers = [n for n in (page(left, number_side="left"), page(right, number_side="right"))
+                   for n in n["printed_numbers"]]
+        return {**page(), "side": "both", "leaf": leaf, "printed_numbers": numbers, "subpages": subpages}
+
+    pages = [
+        {**page(page_type="frontCover"), "leaf": "binding"},
+        {**page(page_type="frontEndSheet"), "leaf": "binding"},  # really the title page
+        {**page(page_type="blank"), "leaf": "plate"},  # really a blank verso in the book block
+        page(3),
+        spread(4, 5, []),
+        # The scan-level "plate" fits only the right page: the left text page stays in the count.
+        spread(None, None, [{"side": "left", "page_type": "normalPage", "confidence": 0.9},
+                            {"side": "right", "page_type": "illustration", "confidence": 0.9}], leaf="plate"),
+        spread(None, 7, [{"side": "left", "page_type": "blank", "confidence": 0.9, "leaf": "plate"}]),
+    ]
+    answer = {
+        "scan_corrections": [
+            {"scan": 2, "page_type": "titlePage", "side": "keep", "leaf": "keep", "reason": "Full title."},
+            {"scan": 3, "page_type": None, "side": "keep", "leaf": "book_block", "reason": "Verso of the title."},
+        ],
+        "bibliography": [], "chapters": [], "issues": [],
+    }
+    out = reconcile_book(make_client(FakeClient(completion(json.dumps(answer)))), make_book(pages))
+    scans = out.resolved.scans
+    assert [s.page_number for s in scans] == ["[1a]", "[1]", "[2]", "3", "4,5", "[6],[6a]", "[6b],7"]
+    assert (scans[2].leaf.value, scans[2].leaf.origin) == ("book_block", "inferred")
+    assert scans[1].leaf is None and scans[5].subpages[0].leaf is None and scans[5].subpages[1].leaf.value == "plate"
+    assert [w.field_path for w in warnings(out, "leaf_type_conflict")] == ["resolved.scans[1].leaf",
+                                                                          "resolved.scans[5].subpages[0].leaf"]
+    assert {c.field_path for c in out.resolved.changes} >= {"resolved.scans[1].leaf", "resolved.scans[2].leaf"}
 
 
 def test_reproduces_kramerius_labels_of_a_1902_monograph():

@@ -32,6 +32,7 @@ from .models import (
     BiblioField,
     Bibliography,
     Claim,
+    Leaf,
     PageType,
     ReconciliationChange,
     ReconciliationWarning,
@@ -54,6 +55,32 @@ class ReconcileError(Exception):
     """Reconciliation cannot run (e.g. the input exceeds ``reconcile_max_chars``); safe to show."""
 
 
+CONFLICTING_LEAVES = frozenset({"plate", "binding"})
+BOOK_BLOCK_TYPES = frozenset(
+    {
+        PageType.TITLE_PAGE,
+        PageType.TABLE_OF_CONTENTS,
+        PageType.PREFACE,
+        PageType.INTRODUCTION,
+        PageType.NORMAL_PAGE,
+        PageType.IMPRESSUM,
+        PageType.COLOPHON,
+        PageType.IMPRIMATUR,
+        PageType.DEDICATION,
+        PageType.ERRATA,
+        PageType.APPENDIX,
+        PageType.BIBLIOGRAPHY,
+        PageType.AFTERWORD,
+        PageType.CONCLUSION,
+        PageType.INDEX,
+        PageType.LIST_OF_ILLUSTRATIONS,
+        PageType.LIST_OF_MAPS,
+        PageType.LIST_OF_TABLES,
+    }
+)
+"""Text pages of the book block; a ``plate`` or ``binding`` leaf kind on them is dropped as contradictory."""
+
+
 # --- LLM response contract (scan numbers are 1-based positions, as in the input text) ------------
 
 
@@ -61,6 +88,9 @@ class ScanCorrection(StrictModel):
     scan: int
     page_type: PageType | None = Field(description="New page type, or null to keep it.")
     side: Literal["keep", "left", "right", "both", "none"] = Field(description="'none' = not applicable/unknown.")
+    leaf: Literal["keep", "book_block", "plate", "binding", "loose", "none"] = Field(
+        description="New leaf kind of the whole scan (all pages of a spread); 'none' = unknown."
+    )
     reason: str = Field(min_length=1)
 
 
@@ -104,7 +134,7 @@ def reconcile_book(client: LLMClient, book: AnnotatedBook) -> AnnotatedBook:
     """
     config = client.config
     book = book.model_copy(deep=True)
-    text = reconcile_input(book.scans, _paginate(book.scans, [_observed_scan(s) for s in book.scans]))
+    text = reconcile_input(book.scans, _paginate(book.scans, _observed_scans(book.scans)))
     if len(text) > config.reconcile_max_chars:
         raise ReconcileError(
             f"reconciliation input has {len(text)} characters, more than reconcile_max_chars="
@@ -143,6 +173,7 @@ def _resolve(scans: list[ScanRecord], response: ReconcileResponse) -> ResolvedBo
     refs = _RefChecker(scans, out.warnings)
     out.scans = [_observed_scan(s) for s in scans]
     _apply_corrections(scans, out, response.scan_corrections, refs)
+    _settle_leaves(out.scans, out.warnings, out.changes)
     pagination = _paginate(scans, out.scans)
     for s, r in zip(scans, out.scans, strict=True):
         r.page_labels = pagination.labels[s.scan_index]
@@ -168,7 +199,16 @@ def _paginate(scans: list[ScanRecord], resolved: list[ResolvedScan]) -> Paginati
         [r.page_type.value if r.page_type else None for r in resolved],
         [r.side.value if r.side else None for r in resolved],
         [{sp.side: sp.page_type.value if sp.page_type else None for sp in r.subpages} for r in resolved],
+        [r.leaf.value if r.leaf else None for r in resolved],
+        [{sp.side: sp.leaf.value if sp.leaf else None for sp in r.subpages} for r in resolved],
     )
+
+
+def _observed_scans(scans: list[ScanRecord]) -> list[ResolvedScan]:
+    """The observed view used for the LLM input (leaf conflicts settled, warnings discarded)."""
+    resolved = [_observed_scan(s) for s in scans]
+    _settle_leaves(resolved, [], [])
+    return resolved
 
 
 def _observed_scan(scan: ScanRecord) -> ResolvedScan:
@@ -183,12 +223,14 @@ def _observed_scan(scan: ScanRecord) -> ResolvedScan:
         if obs.page_type
         else None,
         side=Claim[ScanSide](value=obs.side, source_scan_ids=src, confidence=obs.side_confidence) if obs.side else None,
+        leaf=Claim[Leaf](value=obs.leaf, source_scan_ids=src, notes=obs.leaf_reason) if obs.leaf else None,
         subpages=[
             ResolvedSubpage(
                 side=sub.side,
                 page_type=Claim[PageType](value=sub.page_type, source_scan_ids=src, confidence=sub.confidence)
                 if sub.page_type
                 else None,
+                leaf=Claim[Leaf](value=sub.leaf, source_scan_ids=src) if sub.leaf else None,
             )
             for sub in obs.subpages
         ],
@@ -233,6 +275,47 @@ def _apply_corrections(
                 r.subpages = []
             out.changes.append(ReconciliationChange(field_path=path + ".side", old_value=old_side,
                                                     new_value=new_side, reason=c.reason, source_scan_ids=ids))
+        old_leaf = r.leaf.value if r.leaf else None
+        new_leaf = None if c.leaf == "none" else c.leaf
+        if c.leaf != "keep" and new_leaf != old_leaf:
+            r.leaf = Claim[Leaf](value=new_leaf, origin="inferred", source_scan_ids=ids, notes=c.reason) \
+                if new_leaf else None
+            for sub in r.subpages:  # a correction is for the whole scan
+                sub.leaf = r.leaf.model_copy() if r.leaf else None
+            out.changes.append(ReconciliationChange(field_path=path + ".leaf", old_value=old_leaf,
+                                                    new_value=new_leaf, reason=c.reason, source_scan_ids=ids))
+
+
+def _settle_leaves(
+    resolved: list[ResolvedScan], warnings: list[ReconciliationWarning], changes: list[ReconciliationChange]
+) -> None:
+    """Give each page of a spread its own leaf kind (the scan's, unless the page has its own) and drop
+    leaf kinds that contradict the page type (a plate or binding cannot be a title or text page): the
+    page count then follows from the type and the arithmetic (``pagination``)."""
+    for i, r in enumerate(resolved):
+        path = f"resolved.scans[{i}]"
+        if r.side is not None and r.side.value == "both":
+            for side in ("left", "right") if r.leaf else ():
+                sub = next((sp for sp in r.subpages if sp.side == side), None)
+                if sub is None:
+                    sub = ResolvedSubpage(side=side)
+                    r.subpages.append(sub)
+                if sub.leaf is None:
+                    sub.leaf = r.leaf.model_copy()
+            r.subpages.sort(key=lambda sp: sp.side)
+            pages = [(f"{path}.subpages[{j}]", sp, sp.page_type or r.page_type) for j, sp in enumerate(r.subpages)]
+        else:
+            pages = [(path, r, r.page_type)]
+        for page_path, page, page_type in pages:
+            if (page.leaf and page.leaf.value in CONFLICTING_LEAVES
+                    and page_type and page_type.value in BOOK_BLOCK_TYPES):
+                reason = f"leaf {page.leaf.value!r} contradicts page type {page_type.value!r}; leaf kind unknown"
+                warnings.append(ReconciliationWarning(code="leaf_type_conflict", message=f"scan {i + 1}: {reason}",
+                                                      detected_by="check", field_path=page_path + ".leaf",
+                                                      scan_ids=[r.scan_id]))
+                changes.append(ReconciliationChange(field_path=page_path + ".leaf", old_value=page.leaf.value,
+                                                    new_value=None, reason=reason, source_scan_ids=[r.scan_id]))
+                page.leaf = None
 
 
 # --- Input text --------------------------------------------------------------------------------
@@ -264,7 +347,8 @@ def reconcile_input(scans: list[ScanRecord], pagination: Pagination) -> str:
 def _scan_lines(position: int, obs: ScanObservation, label: str) -> list[str]:
     side = _evidence(obs.side or "side unknown", obs.side_confidence if obs.side else None, obs.side_reason)
     if obs.subpages:
-        side += " (" + ", ".join(f"{s.side} {s.page_type.value if s.page_type else '?'}" for s in obs.subpages) + ")"
+        side += " (" + ", ".join(f"{s.side} {s.page_type.value if s.page_type else '?'}"
+                                 f"{f' leaf {s.leaf}' if s.leaf else ''}" for s in obs.subpages) + ")"
     page_type = obs.page_type.value if obs.page_type else "page type unknown"
     parts = [_evidence(page_type, obs.page_type_confidence, obs.page_type_reason), side]
     if obs.leaf or obs.leaf_reason:

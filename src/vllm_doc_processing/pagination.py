@@ -11,7 +11,7 @@ Every page of every scan gets a label derived from the printed numbers observed 
 * a spread is labelled ``5,6`` / ``[4],5`` (rule 1.1.6) at scan level (``ResolvedScan.page_number``).
 
 Which unnumbered pages are counted is decided from the arithmetic between printed numbers, the page
-types and observed leaf kinds (``UNCOUNTED_TYPES``, ``UNCOUNTED_LEAVES``: never counted) and the side parity of the
+types and resolved leaf kinds (``UNCOUNTED_TYPES``, ``UNCOUNTED_LEAVES``: never counted) and the side parity of the
 book (odd numbers on the right, unless the observed numbers say otherwise). If printed numbers jump
 by more than the pages in between (scans missing or a number misread), the pages between stay
 unlabelled. NDK practice brackets every number that is not printed; this module does the same.
@@ -22,7 +22,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-from .models import LeafSide, PageLabel, PageType, PrintedNumber, ReconciliationWarning, ScanRecord, ScanSide
+from .models import Leaf, LeafSide, PageLabel, PageType, PrintedNumber, ReconciliationWarning, ScanRecord, ScanSide
 
 UNCOUNTED_TYPES = frozenset(
     {
@@ -86,10 +86,14 @@ def paginate(
     types: Sequence[PageType | None],
     sides: Sequence[ScanSide | None],
     subtypes: Sequence[dict[str, PageType | None]],
+    leaves: Sequence[Leaf | None],
+    subleaves: Sequence[dict[str, Leaf | None]],
 ) -> Pagination:
-    """Label every page; ``types``/``sides``/``subtypes`` are the (resolved) values per scan."""
+    """Label every page; ``types``/``sides``/``subtypes`` and ``leaves``/``subleaves`` are the (resolved)
+    values per scan. A page of a spread takes its type from ``subtypes`` (else the scan's) and its leaf
+    kind only from ``subleaves``."""
     odd_side = _odd_side(scans)
-    pages = _pages(scans, types, sides, subtypes, odd_side)
+    pages = _pages(scans, types, sides, subtypes, leaves, subleaves, odd_side)
     pos = {s.scan_index: s.scan_index + 1 for s in scans}
     ids = {s.scan_index: s.scan_id for s in scans}
     result = Pagination({s.scan_index: [] for s in scans})
@@ -191,18 +195,18 @@ def _odd_side(scans: Sequence[ScanRecord]) -> LeafSide:
     return "left" if votes < 0 else "right"
 
 
-def _pages(scans, types, sides, subtypes, odd_side: LeafSide) -> list[_Page]:
+def _pages(scans, types, sides, subtypes, leaves, subleaves, odd_side: LeafSide) -> list[_Page]:
     pages: list[_Page] = []
-    for s, page_type, side, sub in zip(scans, types, sides, subtypes, strict=True):
+    for s, page_type, side, sub, leaf, subleaf in zip(scans, types, sides, subtypes, leaves, subleaves, strict=True):
         numbers = list(s.observation.printed_numbers) if s.observation else []
-        leaf = s.observation.leaf if s.observation else None
         if side != "both":
             side = side if side in ("left", "right") else None
             pages.append(_Page(len(pages), s.scan_index, side, page_type, numbers, leaf))
             continue
         for page_side in ("left", "right"):
             mine = [n for n in numbers if (n.side or _side_by_parity(n, odd_side)) == page_side]
-            pages.append(_Page(len(pages), s.scan_index, page_side, sub.get(page_side) or page_type, mine, leaf))
+            pages.append(_Page(len(pages), s.scan_index, page_side, sub.get(page_side) or page_type, mine,
+                               subleaf.get(page_side)))
     return pages
 
 
