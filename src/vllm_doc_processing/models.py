@@ -139,6 +139,7 @@ class SubpageObservation(StrictModel):
     side: LeafSide
     page_type: PageType | None = None
     confidence: Confidence = None
+    leaf: Leaf | None = Field(default=None, description="Leaf kind of this page if it differs from the scan's.")
 
 
 class Heading(StrictModel):
@@ -263,16 +264,20 @@ class PageLabel(StrictModel):
 
 
 class ResolvedSubpage(StrictModel):
-    """Resolved type of one page of a spread."""
+    """Resolved type and leaf kind of one page of a spread."""
 
     side: LeafSide
     page_type: Claim[PageType] | None = None
+    leaf: Claim[Leaf] | None = Field(default=None, description="Decides the page count of this page.")
 
 
 class ResolvedScan(StrictModel):
     scan_id: str
     page_type: Claim[PageType] | None = None
     side: Claim[ScanSide] | None = None
+    leaf: Claim[Leaf] | None = Field(
+        default=None, description="Leaf kind of a single page; on a spread the subpages' leaf kinds are used."
+    )
     subpages: list[ResolvedSubpage] = Field(default_factory=list)
     page_labels: list[PageLabel] = Field(default_factory=list)
     page_number: str | None = Field(
@@ -486,7 +491,8 @@ def _resolved_scan_refs(resolved: ResolvedBook) -> list[str]:
         refs += claim.source_scan_ids
     for scan in resolved.scans:
         refs.append(scan.scan_id)
-        for claim in (scan.page_type, scan.side, *(sub.page_type for sub in scan.subpages)):
+        subclaims = [c for sub in scan.subpages for c in (sub.page_type, sub.leaf)]
+        for claim in (scan.page_type, scan.side, scan.leaf, *subclaims):
             if claim:
                 refs += claim.source_scan_ids
         for label in scan.page_labels:

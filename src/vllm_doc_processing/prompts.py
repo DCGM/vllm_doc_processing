@@ -116,7 +116,9 @@ thicker or tinted) paper, printed on one side only, tipped in or with a tissue g
 running page number;
 - "binding": covers, boards, pastedowns, endpapers, spine, dust jacket;
 - "loose": a sheet that is not bound in (lying in the book, different size).
-`leaf_reason`: the visible evidence in a few words, or null.
+`leaf_reason`: the visible evidence in a few words, or null. On a spread, `leaf` applies to both \
+pages; if the two pages differ (e.g. a text page facing an inserted plate), set `leaf` to null and \
+give each page its own `leaf` in `subpages`.
 
 # printed_numbers
 Page numbers printed on the page(s), usually in a top or bottom corner or centred in the header or \
@@ -207,7 +209,7 @@ observed in capitals. Do not translate, modernise or expand abbreviations.
 - Refer to scans only by the numbers N of "scan N" in the input.
 
 # scan_corrections
-Corrections of page types and sides that are clearly wrong, judged from the neighbouring scans, the \
+Corrections of page types, sides and leaf kinds that are clearly wrong, judged from the neighbouring scans, the \
 page numbering and the observed content. When in doubt, keep the observation; list only scans you \
 change (usually few or none). Never correct a scan that was not observed. NDK conventions:
 - Usual scan order: frontJacket (front of a dust jacket, if any), frontCover, frontEndSheet (inside \
@@ -226,7 +228,11 @@ sheet; an end sheet before map; a specific type before flyleaf.
 - Sides: single-page scans of a bound book alternate right, left, right, ...; the first page of the \
 book block is a right page; odd page numbers are normally on right pages. Covers, spine, edge, \
 jacket, fold-outs and loose sheets have no side ("none"). "both" only for two facing pages in one image.
+- Leaf: a plate or binding sheet is never a text page of the book (title page, contents, chapter \
+text); correct the leaf when the page type or the numbering shows it is wrong.
 - `page_type`: the new type, or null to keep it. `side`: "left", "right", "both", "none", or "keep". \
+`leaf`: "book_block", "plate", "binding", "loose", "none" (unknown) or "keep"; it applies to the whole \
+scan. \
 `reason`: one short sentence citing the evidence (e.g. "between scans 3 and 5 of the front matter, \
 blank, page 4 implied").
 
