@@ -61,9 +61,11 @@ def test_mock_cli_run_writes_valid_book_and_checkpoint(run, tmp_path):
     assert book.run.finished_at and book.run.tool_version and book.run.totals.requests == 11 and not book.run.warnings
     saved = checkpoint(tmp_path).book  # observation stage only, with every call
     assert saved.resolved is None and saved.run.finished_at is None and len(saved.run.calls) == 11
+    assert saved.run.postprocess_model is None and "reconcile" not in saved.run.prompt_versions
 
     # Without --resume or --fresh an existing checkpoint is never silently reused or overwritten.
     assert run([])[0] == EXIT_CONFIG
+    assert run([], "--dry-run") == (0, [])
 
 
 def test_interrupted_run_resumes_without_repeating_completed_scans(run, tmp_path):

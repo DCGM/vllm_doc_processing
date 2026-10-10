@@ -51,11 +51,14 @@ class Checkpoint(StrictModel):
 
 def run_identity(config: Config, inventory: Inventory, order_names: list[str]) -> dict[str, JsonValue]:
     """Everything an observation depends on except the images themselves (compared per scan)."""
+    settings = {key: getattr(config, key) for key in OBSERVATION_SETTINGS}
+    if not config.use_context:  # irrelevant without context
+        del settings["context_recent_scans"], settings["context_max_chars"]
     return {
         "schema_version": SCHEMA_VERSION,
         "prompt_versions": {"observe": PROMPT_VERSIONS["observe"], "context": CONTEXT_VERSION},
         "base_url": config.effective_base_url,
-        **{key: getattr(config, key) for key in OBSERVATION_SETTINGS},
+        **settings,
         # The scan count and positions are part of every prompt, so the whole order file must match.
         "order_sha256": hashlib.sha256("\n".join(order_names).encode()).hexdigest(),
         "listed_scans": inventory.total_listed,
@@ -97,10 +100,12 @@ def load_checkpoint(path: Path, identity: dict[str, JsonValue], inventory: Inven
 
 
 def save_checkpoint(path: Path, identity: dict[str, JsonValue], book: AnnotatedBook) -> None:
-    """``resolved`` and ``run.finished_at`` are not saved: a checkpoint is never a finished result."""
-    run = book.run.model_copy(update={"finished_at": None})
-    checkpoint = Checkpoint(identity=identity, book=book.model_copy(update={"resolved": None, "run": run}))
-    write_atomic(path, checkpoint.model_dump_json(indent=1) + "\n")
+    """Only the observation stage is saved (no ``resolved``, ``finished_at`` or reconciliation provenance;
+    reconciliation calls stay in ``run.calls``). Re-validated, so a broken book fails here, not on resume."""
+    prompt_versions = {k: v for k, v in book.run.prompt_versions.items() if k != "reconcile"}
+    run = book.run.model_copy(update={"finished_at": None, "postprocess_model": None, "prompt_versions": prompt_versions})
+    data = {"identity": identity, "book": book.model_copy(update={"resolved": None, "run": run}).model_dump()}
+    write_atomic(path, Checkpoint.model_validate(data).model_dump_json(indent=1) + "\n")
 
 
 def write_atomic(path: Path, text: str) -> None:

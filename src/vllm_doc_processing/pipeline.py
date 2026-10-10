@@ -95,11 +95,12 @@ def observe_book(
     return book
 
 
-def resume_book(client: LLMClient, inventory: Inventory, checkpoint: Checkpoint) -> AnnotatedBook:
+def resume_book(client: LLMClient, inventory: Inventory, order_file: Path, checkpoint: Checkpoint) -> AnnotatedBook:
     """The checkpoint's book extended to the selected scans (``max_pages`` may have grown)."""
     book = checkpoint.book.model_copy(deep=True)
     book.scans += [s.model_copy(deep=True) for s in inventory.scans[len(book.scans) :]]
     book.source.scan_count = len(book.scans)
+    book.source.input_directory, book.source.order_file = str(inventory.book_dir), str(order_file)
     book.run.parameters = client.config.model_dump(mode="json")
     log.info(
         "resuming: %d of %d scan(s) already observed, %d earlier request(s)",
@@ -130,7 +131,7 @@ def process_book(
     def save(b: AnnotatedBook) -> None:
         save_checkpoint(checkpoint_path, identity, b)
 
-    book = resume_book(client, inventory, resume_from) if resume_from else new_book(client, inventory, order_file)
+    book = resume_book(client, inventory, order_file, resume_from) if resume_from else new_book(client, inventory, order_file)
     save(book)
     book = observe_book(client, inventory, order_file, book=book, on_scan=save)
     warnings = []
@@ -147,7 +148,7 @@ def process_book(
             book.run.refresh_totals()
             save(book)
             raise
-    save(book)  # records the reconciliation calls for later resumes
+        save(book)  # records the reconciliation calls for later resumes
     book.run.warnings += warnings
     book.run.finished_at = datetime.now(UTC)
     return book
