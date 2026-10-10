@@ -50,7 +50,7 @@ Exit codes of `process`: `0` all scans observed and the output written; `1` the 
 |---|---|
 | `--input BOOK_DIR` | Directory with the scans of one book (required). |
 | `--order-file PATH` | Image names without extensions, one per line, in scan order. Default `BOOK_DIR/order.txt`. |
-| `--output PATH` | Annotated book JSON to write (required); must not lie inside `BOOK_DIR`. |
+| `--output PATH` | Annotated book JSON to write (required); must not lie inside `BOOK_DIR` or `--ocr-dir`. |
 | `--config PATH` | Optional JSON configuration file (see below). |
 | `--provider openai\|openrouter` | API provider. |
 | `--base-url URL` | Override the provider's default OpenAI-compatible base URL. |
@@ -59,7 +59,7 @@ Exit codes of `process`: `0` all scans observed and the output written; `1` the 
 | `--max-pages N` | Process only the first N scans of the order file (cheap experiments). |
 | `--ocr-dir DIR` | Optional existing OCR sidecars, sent as text with each scan's image (see [OCR sidecars](#optional-ocr-sidecars)). |
 | `--ocr-format auto\|txt\|alto` | Which sidecars to use; overrides `ocr_format` (requires `--ocr-dir`). |
-| `--checkpoint PATH` | Observation checkpoint, saved after every scan. Default: OUTPUT with suffix `.checkpoint.json`; must not lie inside `BOOK_DIR`. |
+| `--checkpoint PATH` | Observation checkpoint, saved after every scan. Default: OUTPUT with suffix `.checkpoint.json`; must not lie inside `BOOK_DIR` or `--ocr-dir`. |
 | `--resume` | Continue from the checkpoint (see above). |
 | `--fresh` | Discard an existing checkpoint and start over. |
 | `--skip-postprocess` | Skip reconciliation; the output holds observations only (`resolved: null`). |
@@ -79,7 +79,7 @@ vllm-doc evaluate --gold gold/*.json --prediction results/*/book.json --name my-
   --comparator metakat/*.json data/*.kramerius.json --json report.json --markdown report.md
 vllm-doc evaluate --gold examples/gold.example.json --prediction examples/annotated_book.example.json
 ```
-`gold-template` hashes every listed scan and writes a gold file (the corpus manifest, with optional `--txt-dir`/`--alto-dir` OCR sidecars `<scan_id>.txt|.xml`) in which every label is `not_reviewed`; it never overwrites an existing file. `evaluate` scores the observed and resolved layers of annotated-book outputs (`--prediction`, one configuration, at most one output per book) and MetakatIO / `*.kramerius.json` imports (`--comparator`) against the gold files, only on reviewed fields, and reports the agreement of this tool with each comparator separately. Predictions are matched to gold books by shared scan IDs; scans whose image SHA-256 differs from the gold are not scored. Without `--gold`, only agreement is reported. Gold format, vocabulary mapping (NDK vs MetaKat page types, MetaKat `single_page`), metrics and report contents are described in [docs/EVALUATION.md](docs/EVALUATION.md). Exit codes: `0` report written, `2` invalid inputs, `1` report not writable.
+`gold-template` hashes every listed scan and writes a gold file (the corpus manifest, with optional `--txt-dir`/`--alto-dir` OCR sidecars `<scan_id>.txt|.xml`, matched exactly as by `--ocr-dir` (extension case-insensitive; several candidates for one scan or an unreadable sidecar are an error, exit `2`)) in which every label is `not_reviewed`; it never overwrites an existing file. `evaluate` scores the observed and resolved layers of annotated-book outputs (`--prediction`, one configuration, at most one output per book) and MetakatIO / `*.kramerius.json` imports (`--comparator`) against the gold files, only on reviewed fields, and reports the agreement of this tool with each comparator separately. Predictions are matched to gold books by shared scan IDs; scans whose image SHA-256 differs from the gold are not scored. Without `--gold`, only agreement is reported. Gold format, vocabulary mapping (NDK vs MetaKat page types, MetaKat `single_page`), metrics and report contents are described in [docs/EVALUATION.md](docs/EVALUATION.md). Exit codes: `0` report written, `2` invalid inputs, `1` report not writable.
 
 ### Configuration
 Precedence: **built-in defaults < `--config` JSON file < command-line flags**. The config file is a flat JSON object whose keys match the settings below; unknown keys are rejected so typos fail loudly. See [examples/config.example.json](examples/config.example.json).
@@ -115,7 +115,7 @@ Precedence: **built-in defaults < `--config` JSON file < command-line flags**. T
 - `image_max_side` trades legibility of small print against upload size and cost. The default 2048 is a starting point, not a measured optimum: some providers downscale large images internally anyway, while others bill and see more detail at higher resolution. Tune it per model (or `null`) during benchmarking.
 
 ### Optional OCR sidecars
-- `--ocr-dir DIR` points to existing OCR results of the same book, one file per scan, matched by the exact scan ID from the order file: `<scan_id>.txt` (UTF-8, optional BOM) or `<scan_id>.xml` (ALTO, any namespace version or none), directly in `DIR`, extension case-insensitive. The directory may be `BOOK_DIR` itself. No OCR is run; source files are only read.
+- `--ocr-dir DIR` points to existing OCR results of the same book, one file per scan, matched by the exact scan ID from the order file: `<scan_id>.txt` (UTF-8, optional BOM) or `<scan_id>.xml` (ALTO, any namespace version or none), directly in `DIR`, extension case-insensitive. The directory may be `BOOK_DIR` itself. No OCR is run; source files are only read, and the output and checkpoint must not lie inside `DIR`.
 - Missing or unusable OCR never stops the book: the scan is sent as image only. Unusable means an ambiguous match (`a.txt` + `a.xml` with `ocr_format: auto`, or `a.txt` + `a.TXT`; neither is used), an unreadable file, invalid UTF-8, malformed XML or a non-ALTO XML. All sidecars are checked before the first request. A startup line on stderr counts scans with TXT/ALTO text, without sidecar and with an unusable one, followed by one warning per unusable sidecar with the reason. The same is recorded in each scan's `ocr` (`status: missing|error`, `error`) and in `run.warnings`. Nothing is silently substituted. Only a missing `--ocr-dir` directory is an error (exit `2`).
 - ALTO is reduced to text in document order: one line per `TextLine` (`String/@CONTENT` joined by spaces, `HYP` appended), a blank line between `TextBlock`s; coordinates, styles and `SUBS_CONTENT` are ignored. Both formats get normalized line breaks and at most one blank line in a row.
 - Each observation request carries the current image, the bounded context from earlier observations and the OCR text of **that scan only**, cut to `ocr_max_chars`. The prompt calls the OCR fallible and the image authoritative ([docs/PROMPTS.md](docs/PROMPTS.md#ocr-text-issue-14)). OCR of earlier scans is never added to later requests (the context is built from observations only).

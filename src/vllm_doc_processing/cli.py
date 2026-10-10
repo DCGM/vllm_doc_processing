@@ -191,16 +191,18 @@ def _order_file(args: argparse.Namespace) -> Path:
 
 
 def _check_paths(args: argparse.Namespace) -> tuple[Path, Path]:
-    """Validate input/output/checkpoint locations; return the order file and checkpoint paths."""
-    book_dir: Path = args.input
+    """Validate input/output/checkpoint locations; return the order file and checkpoint paths.
+    Nothing is ever written into the input or OCR directory, so no source file can be overwritten."""
     order_file = _order_file(args)
     output: Path = args.output
     checkpoint: Path = args.checkpoint or output.with_name(output.stem + ".checkpoint.json")
+    inputs = [("input", args.input)] + ([("OCR", args.ocr_dir)] if args.ocr_dir else [])
     for what, path in (("output", output), ("checkpoint", checkpoint)):
         if path.is_dir():
             raise ConfigError(f"{what} path is a directory: {path}")
-        if path.resolve().is_relative_to(book_dir.resolve()):
-            raise ConfigError(f"{what} must not be written into the input directory: {path}")
+        for name, directory in inputs:
+            if path.resolve().is_relative_to(directory.resolve()):
+                raise ConfigError(f"{what} must not be written into the {name} directory: {path}")
     if checkpoint.resolve() == output.resolve():
         raise ConfigError("checkpoint and output must be different files")
     return order_file, checkpoint
