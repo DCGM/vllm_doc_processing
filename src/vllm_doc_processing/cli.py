@@ -156,7 +156,7 @@ def run_process(args: argparse.Namespace) -> int:
     inventory = _inventory(args.input, order_file, config.max_pages)
     identity = run_identity(config, inventory, read_order_file(order_file))
     resume_from = load_checkpoint(checkpoint_path, identity, inventory) if args.resume else None
-    if checkpoint_path.exists() and not (args.resume or args.fresh):
+    if checkpoint_path.exists() and not (args.resume or args.fresh or args.dry_run):
         raise ConfigError(f"checkpoint {checkpoint_path} exists; pass --resume to continue it or --fresh to start over")
 
     if args.dry_run:
@@ -200,11 +200,19 @@ def run_process(args: argparse.Namespace) -> int:
         print(f"vllm-doc: error: {exc}", file=sys.stderr)
         print(f"vllm-doc: observations are kept in {checkpoint_path}; no output written; continue with --resume", file=sys.stderr)
         return EXIT_RUNTIME
+    except OSError as exc:  # checkpoint could not be written
+        print(f"vllm-doc: error: {exc}; completed scans are in {checkpoint_path} if it exists", file=sys.stderr)
+        return EXIT_RUNTIME
     except KeyboardInterrupt:
         print(f"\nvllm-doc: interrupted; completed scans are kept in {checkpoint_path}; continue with --resume", file=sys.stderr)
         return EXIT_INTERRUPTED
     book.run.tool_version = _tool_version()
-    write_atomic(args.output, dump_json(book))
+    try:
+        write_atomic(args.output, dump_json(book))
+    except OSError as exc:
+        print(f"vllm-doc: error: cannot write {args.output}: {exc}", file=sys.stderr)
+        print(f"vllm-doc: observations are kept in {checkpoint_path}; fix the path and continue with --resume", file=sys.stderr)
+        return EXIT_RUNTIME
 
     observed = sum(s.observation is not None for s in book.scans)
     print(
